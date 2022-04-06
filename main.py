@@ -59,10 +59,10 @@ async def main():
     msn = int(msn)
     future = m3u8.segment(msn)
     if future is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/m2pt")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp2t")
 
     body = await future
-    return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/m2pt")
+    return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/mp2t")
   async def partial(request):
     nonlocal m3u8
     msn = request.query['msn'] if 'msn' in request.query else None
@@ -74,10 +74,10 @@ async def main():
     part = int(part)
     future = m3u8.partial(msn, part) 
     if future is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/m2pt")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp2t")
 
     body = await future
-    return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/m2pt")
+    return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/mp2t")
     
   # setup aiohttp
   app = web.Application()
@@ -121,28 +121,27 @@ async def main():
       PMT_CC = (PMT_CC + len(packets)) & 0x0F
       for p in packets: m3u8.push(p)
 
-  def reader():
-    nonlocal m3u8
-    nonlocal PAT_Parser, PMT_Parser, H264_PES_Parser
-    nonlocal LAST_PAT, LAST_PMT
-    nonlocal PMT_PID, PCR_PID, H264_PID
-    nonlocal PAT_CC, PMT_CC, H264_CC
-    nonlocal FIRST_IDR_DETECTED
-    nonlocal PARTIAL_BEGIN_DTS
+  reader = asyncio.StreamReader()
+  protocol = asyncio.StreamReaderProtocol(reader)
+  await loop.connect_read_pipe(lambda: protocol, args.input)
 
+  while True:
     isEOF = False
     while True:
-      sync_byte = args.input.read(1)
-      if sync_byte == b'':
+      try:
+        sync_byte = await reader.readexactly(1)
+        if sync_byte == ts.SYNC_BYTE:
+          break
+      except IncompleteReadError:
         isEOF = True
-        break
-      if sync_byte == ts.SYNC_BYTE:
-        break
     if isEOF:
-      loop.remove_reader(args.input.fileno())  
-      return
-
-    packet = ts.SYNC_BYTE + args.input.read(ts.PACKET_SIZE - 1)
+      break
+    
+    packet = None
+    try:
+      packet = ts.SYNC_BYTE + await reader.readexactly(ts.PACKET_SIZE - 1)
+    except IncompleteReadError:
+      break
 
     if ts.pid(packet) == 0x00:
       PAT_Parser.push(packet)
@@ -215,9 +214,5 @@ async def main():
     else:
       m3u8.push(packet)
 
-  loop.add_reader(args.input.fileno(), reader)
-
 if __name__ == '__main__':
-  loop = asyncio.new_event_loop()
-  loop.run_until_complete(main())
-  loop.run_forever()
+  asyncio.run(main())
