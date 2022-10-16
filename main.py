@@ -15,7 +15,7 @@ from mpeg2ts.packetize import packetize_section, packetize_pes
 from mpeg2ts.section import Section
 from mpeg2ts.pat import PATSection
 from mpeg2ts.pmt import PMTSection
-from mpeg2ts.h264 import H264PES
+from mpeg2ts.pes import PES
 from mpeg2ts.parser import SectionParser, PESParser
 
 from hls.m3u8 import M3U8
@@ -93,7 +93,7 @@ async def main():
   # setup reader
   PAT_Parser = SectionParser(PATSection)
   PMT_Parser = SectionParser(PMTSection)
-  H264_PES_Parser = PESParser(H264PES)
+  H264_PES_Parser = PESParser(PES)
 
   PMT_PID = None
   PCR_PID = None
@@ -183,9 +183,30 @@ async def main():
       for H264 in H264_PES_Parser:
         hasIDR = False
         timestamp = H264.dts() or H264.pts()
-        for nalu in H264:
-          nal_unit_type = nalu[0] & 0x1F
-          hasIDR = hasIDR or nal_unit_type == 5
+
+        data = H264.PES_packet_data()
+        begin = 0
+        while begin < len(data):
+          if begin + 2 >= len(data): break
+
+          if H264[begin + 0] != 0:
+            begin += 1
+            continue
+          elif H264[begin + 1] != 0:
+            begin += 1
+            continue
+          elif H264[begin + 2] != 1:
+            begin += 1
+            continue
+          elif begin + 3 >= len(data):
+            break
+
+          nal_unit_type = data[begin + 3] & 0x1f
+          if nal_unit_type == 5:
+            hasIDR = True
+            break
+
+          begin += 4
         
         if hasIDR:
           if not FIRST_IDR_DETECTED:
