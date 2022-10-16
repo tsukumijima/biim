@@ -22,7 +22,7 @@ from hls.m3u8 import M3U8
 
 async def main():
   loop = asyncio.get_running_loop()
-  parser = argparse.ArgumentParser(description=('ARIB subtitle renderer'))
+  parser = argparse.ArgumentParser(description=('biim: LL-HLS origin'))
 
   parser.add_argument('-i', '--input', type=argparse.FileType('rb'), nargs='?', default=sys.stdin.buffer)
   parser.add_argument('-s', '--SID', type=int, nargs='?')
@@ -106,7 +106,7 @@ async def main():
   PMT_CC = 0
   H264_CC = 0
 
-  PARTIAL_BEGIN_DTS = None
+  PARTIAL_BEGIN_TIMESTAMP = None
 
   def push_PAT_PMT(PAT, PMT):
     nonlocal m3u8
@@ -182,6 +182,7 @@ async def main():
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
         hasIDR = False
+        timestamp = H264.dts() or H264.pts()
         for nalu in H264:
           nal_unit_type = nalu[0] & 0x1F
           hasIDR = hasIDR or nal_unit_type == 5
@@ -191,21 +192,20 @@ async def main():
             if LAST_PAT and LAST_PMT:
               FIRST_IDR_DETECTED = True
             if FIRST_IDR_DETECTED:
-              PARTIAL_BEGIN_DTS = H264.dts()
-              m3u8.newSegment(PARTIAL_BEGIN_DTS, True)
+              PARTIAL_BEGIN_TIMESTAMP = timestamp
+              m3u8.newSegment(PARTIAL_BEGIN_TIMESTAMP, True)
               push_PAT_PMT(LAST_PAT, LAST_PMT)
           else:
-            PARTIAL_BEGIN_DTS = H264.dts()
-            m3u8.completeSegment(PARTIAL_BEGIN_DTS)
-            m3u8.newSegment(PARTIAL_BEGIN_DTS, True)
+            PARTIAL_BEGIN_TIMESTAMP = timestamp
+            m3u8.completeSegment(PARTIAL_BEGIN_TIMESTAMP)
+            m3u8.newSegment(PARTIAL_BEGIN_TIMESTAMP, True)
             push_PAT_PMT(LAST_PAT, LAST_PMT)
-        elif PARTIAL_BEGIN_DTS is not None:
-          timestamp = H264.dts() or H264.pts()
-          PART_DIFF = (timestamp - PARTIAL_BEGIN_DTS + ts.PCR_CYCLE) % ts.PCR_CYCLE
-          if PART_DIFF >= args.part_duration * ts.HZ:
-            PARTIAL_BEGIN_DTS = timestamp
-            m3u8.completePartial(PARTIAL_BEGIN_DTS)
-            m3u8.newPartial(PARTIAL_BEGIN_DTS)
+        elif PARTIAL_BEGIN_TIMESTAMP is not None:
+          PART_DIFF = (timestamp - PARTIAL_BEGIN_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE
+          if args.part_duration * ts.HZ < PART_DIFF:
+            PARTIAL_BEGIN_TIMESTAMP = timestamp
+            m3u8.completePartial(PARTIAL_BEGIN_TIMESTAMP)
+            m3u8.newPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         if FIRST_IDR_DETECTED:
           packets = packetize_pes(H264, False, False, H264_PID, 0, H264_CC)

@@ -25,12 +25,17 @@ class H264PES(PES):
     if prev is not None and prev != begin:
       ebsps.append(PES_packet_data[prev:])
 
+    prev, begin = None, 2
     self.rbsps = []
     for ebsp in ebsps:
-      rbsp = list(ebsp[0:2])
-      for x in range(2, len(ebsp)):
-        if x < (len(ebsp) - 1) and ebsp[x - 2] == 0 and ebsp[x - 1] == 0 and ebsp[x + 0] == 3 and ebsp[x + 1] in [0, 1, 2, 3]: continue
-        rbsp.append(ebsp[x])
+      rbsp = bytearray(ebsp[0:begin])
+      while begin < len(ebsp):
+        if begin < (len(ebsp) - 1) and ebsp[begin - 2] == 0 and ebsp[begin - 1] == 0 and ebsp[begin + 0] == 3 and ebsp[begin + 1] in [0, 1, 2, 3]:
+          rbsp += ebsp[prev:begin]
+          prev = begin + 1
+        begin += 1
+      if prev is not None and prev != begin:
+        rbsp += ebsp[prev:begin]
       self.rbsps.append(bytes(rbsp))
   
   def __iter__(self):

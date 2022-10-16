@@ -41,6 +41,12 @@ class PES:
     else:
       return False
 
+  def pes_header_length(self):
+    if self.has_optional_pes_header():
+      return (self.payload[PES.HEADER_SIZE + 2])
+    else:
+      return None
+
   def pts(self):
     if not self.has_pts(): return None
 

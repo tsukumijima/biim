@@ -97,7 +97,7 @@ class PESParser:
       if pes_length == 0:
         next = ts.PACKET_SIZE
       else:
-        next = min(begin + (len(self.pes) - (PES.HEADER_SIZE + pes_length)), ts.PACKET_SIZE)
+        next = min(begin + ((PES.HEADER_SIZE + pes_length) - len(self.pes), ts.PACKET_SIZE))
       self.pes += packet[begin:next]
 
     if ((self.pes[4] << 8) | self.pes[5]) > 0:
