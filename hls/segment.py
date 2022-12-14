@@ -17,15 +17,15 @@ class PartialSegment:
 
   def push(self, packet):
     self.buffer += packet
-  
+
   def future(self):
     f = asyncio.Future()
     if (self.isCompleted()):
       f.set_result(bytes(self.buffer))
     else:
-      self.futures.append(f)    
+      self.futures.append(f)
     return f
-  
+
   def m3u8(self):
     f = asyncio.Future()
     if not self.isCompleted():
@@ -38,7 +38,7 @@ class PartialSegment:
 
   def isCompleted(self):
     return self.endPTS is not None
-  
+
   def extinf(self):
     if not self.endPTS:
       return None
@@ -47,7 +47,7 @@ class PartialSegment:
 
   def estimate(self, endPTS):
     return timedelta(seconds = (((endPTS - self.beginPTS + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
-    
+
 class Segment(PartialSegment):
   def __init__(self, beginPTS, isIFrame = False):
     super().__init__(beginPTS, isIFrame = False)

@@ -26,7 +26,7 @@ async def main():
 
   parser.add_argument('-i', '--input', type=argparse.FileType('rb'), nargs='?', default=sys.stdin.buffer)
   parser.add_argument('-s', '--SID', type=int, nargs='?')
-  parser.add_argument('-l', '--list_size', type=int, nargs='?')
+  parser.add_argument('-l', '--list_size', type=int, nargs='?', default=3)
   parser.add_argument('-t', '--target_duration', type=int, nargs='?', default=1)
   parser.add_argument('-p', '--part_duration', type=float, nargs='?', default=0.1)
   parser.add_argument('--port', type=int, nargs='?', default=8080)
@@ -78,7 +78,7 @@ async def main():
 
     body = await future
     return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/mp2t")
-    
+
   # setup aiohttp
   app = web.Application()
   app.add_routes([
@@ -136,7 +136,7 @@ async def main():
         isEOF = True
     if isEOF:
       break
-    
+
     packet = None
     try:
       packet = ts.SYNC_BYTE + await reader.readexactly(ts.PACKET_SIZE - 1)
@@ -156,7 +156,7 @@ async def main():
             PMT_PID = program_map_PID
           elif not PMT_PID and not args.SID:
             PMT_PID = program_map_PID
-        
+
         if FIRST_IDR_DETECTED:
           packets = packetize_section(PAT, False, False, 0x00, 0, PAT_CC)
           PAT_CC = (PAT_CC + len(packets)) & 0x0F
@@ -172,7 +172,7 @@ async def main():
         for stream_type, elementary_PID in PMT:
           if stream_type == 0x1b:
             H264_PID = elementary_PID
-        
+
         if FIRST_IDR_DETECTED:
           packets = packetize_section(PMT, False, False, PMT_PID, 0, PMT_CC)
           PMT_CC = (PMT_CC + len(packets)) & 0x0F
@@ -207,7 +207,7 @@ async def main():
             break
 
           begin += 4
-        
+
         if hasIDR:
           if not FIRST_IDR_DETECTED:
             if LAST_PAT and LAST_PMT:

@@ -69,7 +69,7 @@ class PESParser:
     self.pes = None
     self.queue = deque()
     self._class = _class
-  
+
   def __iter__(self):
     return self
 
@@ -97,7 +97,7 @@ class PESParser:
       if pes_length == 0:
         next = ts.PACKET_SIZE
       else:
-        next = min(begin + ((PES.HEADER_SIZE + pes_length) - len(self.pes), ts.PACKET_SIZE))
+        next = min(begin + (PES.HEADER_SIZE + pes_length) - len(self.pes), ts.PACKET_SIZE)
       self.pes += packet[begin:next]
 
     if ((self.pes[4] << 8) | self.pes[5]) > 0:
