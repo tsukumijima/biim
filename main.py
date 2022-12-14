@@ -132,7 +132,7 @@ async def main():
         sync_byte = await reader.readexactly(1)
         if sync_byte == ts.SYNC_BYTE:
           break
-      except IncompleteReadError:
+      except asyncio.IncompleteReadError:
         isEOF = True
     if isEOF:
       break
@@ -140,7 +140,7 @@ async def main():
     packet = None
     try:
       packet = ts.SYNC_BYTE + await reader.readexactly(ts.PACKET_SIZE - 1)
-    except IncompleteReadError:
+    except asyncio.IncompleteReadError:
       break
 
     if ts.pid(packet) == 0x00:

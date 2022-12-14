@@ -23,7 +23,7 @@ from mpeg2ts.parser import SectionParser, PESParser
 
 from hls.m3u8 import M3U8
 
-from mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat
+from mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat, emsg
 from mp4.hevc import hevcTrack
 from mp4.mp4a import mp4aTrack
 
@@ -127,17 +127,20 @@ async def main():
   PMT_Parser = SectionParser(PMTSection)
   AAC_PES_Parser = PESParser(PES)
   H265_PES_Parser = PESParser(H265PES)
+  ID3_PES_Parser = PESParser(PES)
 
   PMT_PID = None
   PCR_PID = None
   AAC_PID = None
   H265_PID = None
+  ID3_PID = None
 
   AAC_CONFIG = None
 
   H265_DEQUE = deque()
   H265_FRAGMENTS = deque()
   AAC_FRAGMENTS = deque()
+  EMSG_FRAGMENTS = deque()
 
   VPS = None
   SPS = None
@@ -157,7 +160,7 @@ async def main():
         sync_byte = await reader.readexactly(1)
         if sync_byte == ts.SYNC_BYTE:
           break
-      except IncompleteReadError:
+      except asyncio.IncompleteReadError:
         isEOF = True
     if isEOF:
       break
@@ -165,7 +168,7 @@ async def main():
     packet = None
     try:
       packet = ts.SYNC_BYTE + await reader.readexactly(ts.PACKET_SIZE - 1)
-    except IncompleteReadError:
+    except asyncio.IncompleteReadError:
       break
 
     if ts.pid(packet) == 0x00:
@@ -194,6 +197,15 @@ async def main():
             H265_PID = elementary_PID
           elif stream_type == 0x0F:
             AAC_PID = elementary_PID
+          elif stream_type == 0x15:
+            ID3_PID = elementary_PID
+
+    elif ts.pid(packet) == ID3_PID:
+      ID3_PES_Parser.push(packet)
+      for ID3_PES in ID3_PES_Parser:
+        timestamp = ID3_PES.pts()
+        ID3 = ID3_PES.PES_packet_data()
+        EMSG_FRAGMENTS.append(emsg(ts.HZ, timestamp, None, 'https://aomedia.org/emsg/ID3', ID3))
 
     elif ts.pid(packet) == AAC_PID:
       AAC_PES_Parser.push(packet)
@@ -294,8 +306,10 @@ async def main():
             m3u8.completePartial(PARTIAL_BEGIN_TIMESTAMP)
             m3u8.newPartial(PARTIAL_BEGIN_TIMESTAMP)
 
+        while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
         while (H265_FRAGMENTS): m3u8.push(H265_FRAGMENTS.popleft())
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
+
     else:
       pass
 

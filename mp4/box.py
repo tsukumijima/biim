@@ -261,3 +261,14 @@ def trun(offset, samples):
 
 def mdat(data):
   return box('mdat', data)
+
+def emsg(timescale, presentationTime, duration, schemeIdUri, content):
+  return fullbox('emsg', 1, 0, [
+    (timescale).to_bytes(4, byteorder='big'),
+    (presentationTime).to_bytes(8, byteorder='big'),
+    (duration if duration is not None else 0xFFFFFFFF).to_bytes(4, byteorder='big'),
+    (0).to_bytes(4, byteorder='big'), # id
+    (schemeIdUri).encode('ascii') + b'\x00',
+    b'\x00', # value
+    content
+  ])
