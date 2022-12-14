@@ -21,6 +21,8 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
   bit_depth_chroma_minus8 = None
   constant_frame_rate = 0
 
+  sar_width = 1
+  sar_height = 1
   pic_width_in_luma_samples = None
   pic_height_in_luma_samples = None
 
@@ -69,7 +71,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
         stream.readByte() # sub_layer_profile_space, sub_layer_tier_flag, sub_layer_profile_idc
         stream.readByte(4) # sub_layer_profile_compatibility_flag
         stream.readByte(6)
-      if sub_layer_profile_present_flag[i]:
+      if sub_layer_level_present_flag[i]:
         stream.readByte()
 
     seq_parameter_set_id = stream.readUEG()
@@ -153,7 +155,8 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
 
     default_display_window_flag = False
     min_spatial_segmentation_idc = 0
-    sar_width, sar_height = 1, 1
+    nonlocal sar_width
+    nonlocal sar_height
     fps_fixed = False
     fps_den = 1
     fps_num = 1
@@ -362,7 +365,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
   ])
 
   return trak(
-    tkhd(trackId, pic_width_in_luma_samples, pic_height_in_luma_samples),
+    tkhd(trackId, pic_width_in_luma_samples * sar_width // sar_height, pic_height_in_luma_samples),
     mdia(
       mdhd(timescale),
       hdlr('vide', 'videohandler'),
