@@ -26,7 +26,7 @@ async def main():
 
   parser.add_argument('-i', '--input', type=argparse.FileType('rb'), nargs='?', default=sys.stdin.buffer)
   parser.add_argument('-s', '--SID', type=int, nargs='?')
-  parser.add_argument('-l', '--list_size', type=int, nargs='?', default=3)
+  parser.add_argument('-l', '--list_size', type=int, nargs='?')
   parser.add_argument('-t', '--target_duration', type=int, nargs='?', default=1)
   parser.add_argument('-p', '--part_duration', type=float, nargs='?', default=0.1)
   parser.add_argument('--port', type=int, nargs='?', default=8080)
