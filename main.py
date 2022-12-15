@@ -189,13 +189,13 @@ async def main():
         while begin < len(data):
           if begin + 2 >= len(data): break
 
-          if H264[begin + 0] != 0:
+          if data[begin + 0] != 0:
             begin += 1
             continue
-          elif H264[begin + 1] != 0:
+          elif data[begin + 1] != 0:
             begin += 1
             continue
-          elif H264[begin + 2] != 1:
+          elif data[begin + 2] != 1:
             begin += 1
             continue
           elif begin + 3 >= len(data):
