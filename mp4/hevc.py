@@ -365,7 +365,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
   ])
 
   return trak(
-    tkhd(trackId, pic_width_in_luma_samples * sar_width // sar_height, pic_height_in_luma_samples),
+    tkhd(trackId, (pic_width_in_luma_samples * sar_width + (sar_height - 1)) // sar_height, pic_height_in_luma_samples),
     mdia(
       mdhd(timescale),
       hdlr('vide', 'videohandler'),

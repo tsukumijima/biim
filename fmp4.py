@@ -137,7 +137,9 @@ async def main():
 
   AAC_CONFIG = None
 
-  H265_DEQUE = deque()
+  CURR_H265_DEQUE = deque()
+  NEXT_H265_DEQUE = deque()
+
   H265_FRAGMENTS = deque()
   AAC_FRAGMENTS = deque()
   EMSG_FRAGMENTS = deque()
@@ -256,27 +258,27 @@ async def main():
             SPS = ebsp
           elif nal_unit_type == 0x22: # PPS
             PPS = ebsp
-          elif nal_unit_type == 0x23: # AUD
+          elif nal_unit_type == 0x23 or nal_unit_type == 0x27: # AUD or SEI
             pass
           else:
-            H265_DEQUE.append((nal_unit_type, ebsp, timestamp, cts))
+            NEXT_H265_DEQUE.append((nal_unit_type, ebsp, timestamp, cts))
 
-        while len(H265_DEQUE) > 1:
-          (nalu_type, ebsp, curr_pts, cts) = H265_DEQUE.popleft()
-          (_, _, next_pts, _) = H265_DEQUE[0]
+        while CURR_H265_DEQUE:
+          (nalu_type, ebsp, dts, cts) = CURR_H265_DEQUE.popleft()
           isKeyframe = (nalu_type == 19 or nalu_type == 20)
           hasIDR = hasIDR or isKeyframe
-          duration = (next_pts - curr_pts + ts.HZ) % ts.HZ
+          duration = (timestamp - dts + ts.HZ) % ts.HZ
           H265_FRAGMENTS.append(
             b''.join([
               moof(0,
                 [
-                  (1, duration, curr_pts, 0, [(4 + len(ebsp), duration, isKeyframe, cts)])
+                  (1, duration, dts, 0, [(4 + len(ebsp), duration, isKeyframe, cts)])
                 ]
               ),
               mdat(len(ebsp).to_bytes(4, byteorder='big') + ebsp)
             ])
           )
+        NEXT_H265_DEQUE, CURR_H265_DEQUE = CURR_H265_DEQUE, NEXT_H265_DEQUE
 
         if VPS and SPS and PPS and AAC_CONFIG and not INITIALIZATION_SEGMENT_DISPATCHED:
           init.set_result(b''.join([
