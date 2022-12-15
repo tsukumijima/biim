@@ -80,7 +80,7 @@ def avcTrack(trackId, timescale, sps, pps):
     pic_height_in_map_units_minus1 = stream.readUEG()
 
     frame_mbs_only_flag = stream.readBool()
-    if frame_mbs_only_flag: stream.readBits(1)
+    if frame_mbs_only_flag == 0: stream.readBits(1)
     stream.readBool()
 
     frame_crop_left_offset = 0

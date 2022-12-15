@@ -18,12 +18,14 @@ from mpeg2ts.section import Section
 from mpeg2ts.pat import PATSection
 from mpeg2ts.pmt import PMTSection
 from mpeg2ts.pes import PES
+from mpeg2ts.h264 import H264PES
 from mpeg2ts.h265 import H265PES
 from mpeg2ts.parser import SectionParser, PESParser
 
 from hls.m3u8 import M3U8
 
 from mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat, emsg
+from mp4.avc import avcTrack
 from mp4.hevc import hevcTrack
 from mp4.mp4a import mp4aTrack
 
@@ -126,20 +128,25 @@ async def main():
   PAT_Parser = SectionParser(PATSection)
   PMT_Parser = SectionParser(PMTSection)
   AAC_PES_Parser = PESParser(PES)
+  H264_PES_Parser = PESParser(H264PES)
   H265_PES_Parser = PESParser(H265PES)
   ID3_PES_Parser = PESParser(PES)
 
   PMT_PID = None
   PCR_PID = None
   AAC_PID = None
+  H264_PID = None
   H265_PID = None
   ID3_PID = None
 
   AAC_CONFIG = None
 
+  CURR_H264_DEQUE = deque()
+  NEXT_H264_DEQUE = deque()
   CURR_H265_DEQUE = deque()
   NEXT_H265_DEQUE = deque()
 
+  H264_FRAGMENTS = deque()
   H265_FRAGMENTS = deque()
   AAC_FRAGMENTS = deque()
   EMSG_FRAGMENTS = deque()
@@ -195,7 +202,9 @@ async def main():
 
         PCR_PID = PMT.PCR_PID
         for stream_type, elementary_PID in PMT:
-          if stream_type == 0x24:
+          if stream_type == 0x1b:
+            H264_PID = elementary_PID
+          elif stream_type == 0x24:
             H265_PID = elementary_PID
           elif stream_type == 0x0F:
             AAC_PID = elementary_PID
@@ -240,6 +249,75 @@ async def main():
           )
           timestamp += duration
           begin += frameLength
+
+    elif ts.pid(packet) == H264_PID:
+      H264_PES_Parser.push(packet)
+      for H264 in H264_PES_Parser:
+        hasIDR = False
+        timestamp = H264.dts() or H264.pts()
+        cts =  H264.pts() - timestamp
+
+        samples = []
+        for ebsp in H264:
+          nal_unit_type = ebsp[0] & 0x1f
+
+          if nal_unit_type == 0x07: # SPS
+            SPS = ebsp
+          elif nal_unit_type == 0x08: # PPS
+            PPS = ebsp
+          elif nal_unit_type == 0x09 or nal_unit_type == 0x06: # AUD or SEI
+            pass
+          else:
+            NEXT_H264_DEQUE.append((nal_unit_type, ebsp, timestamp, cts))
+
+        while CURR_H264_DEQUE:
+          (nalu_type, ebsp, dts, cts) = CURR_H264_DEQUE.popleft()
+          isKeyframe = nalu_type == 0x05
+          hasIDR = hasIDR or isKeyframe
+          duration = (timestamp - dts + ts.HZ) % ts.HZ
+          H264_FRAGMENTS.append(
+            b''.join([
+              moof(0,
+                [
+                  (1, duration, dts, 0, [(4 + len(ebsp), duration, isKeyframe, cts)])
+                ]
+              ),
+              mdat(len(ebsp).to_bytes(4, byteorder='big') + ebsp)
+            ])
+          )
+        NEXT_H264_DEQUE, CURR_H264_DEQUE = CURR_H264_DEQUE, NEXT_H264_DEQUE
+
+        if SPS and PPS and AAC_CONFIG and not INITIALIZATION_SEGMENT_DISPATCHED:
+          init.set_result(b''.join([
+            ftyp(),
+            moov(
+              mvhd(ts.HZ),
+              mvex([
+                trex(1),
+                trex(2)
+              ]),
+              [
+                avcTrack(1, ts.HZ, SPS, PPS),
+                mp4aTrack(2, ts.HZ, *AAC_CONFIG),
+              ]
+            )
+          ]))
+          INITIALIZATION_SEGMENT_DISPATCHED = True
+
+        if hasIDR:
+          PARTIAL_BEGIN_TIMESTAMP = timestamp
+          m3u8.completeSegment(PARTIAL_BEGIN_TIMESTAMP)
+          m3u8.newSegment(PARTIAL_BEGIN_TIMESTAMP, True)
+        elif PARTIAL_BEGIN_TIMESTAMP is not None:
+          PART_DIFF = (timestamp - PARTIAL_BEGIN_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE
+          if args.part_duration * ts.HZ < PART_DIFF:
+            PARTIAL_BEGIN_TIMESTAMP = timestamp
+            m3u8.completePartial(PARTIAL_BEGIN_TIMESTAMP)
+            m3u8.newPartial(PARTIAL_BEGIN_TIMESTAMP)
+
+        while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
+        while (H264_FRAGMENTS): m3u8.push(H264_FRAGMENTS.popleft())
+        while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
 
     elif ts.pid(packet) == H265_PID:
       H265_PES_Parser.push(packet)
