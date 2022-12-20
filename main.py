@@ -143,7 +143,8 @@ async def main():
     except asyncio.IncompleteReadError:
       break
 
-    if ts.pid(packet) == 0x00:
+    PID = ts.pid(packet)
+    if PID == 0x00:
       PAT_Parser.push(packet)
       for PAT in PAT_Parser:
         if PAT.CRC32() != 0: continue
@@ -162,7 +163,7 @@ async def main():
           PAT_CC = (PAT_CC + len(packets)) & 0x0F
           for p in packets: m3u8.push(p)
 
-    elif ts.pid(packet) == PMT_PID:
+    elif PID == PMT_PID:
       PMT_Parser.push(packet)
       for PMT in PMT_Parser:
         if PMT.CRC32() != 0: continue
@@ -178,7 +179,7 @@ async def main():
           PMT_CC = (PMT_CC + len(packets)) & 0x0F
           for p in packets: m3u8.push(p)
 
-    elif ts.pid(packet) == H264_PID:
+    elif PID == H264_PID:
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
         hasIDR = False
@@ -232,6 +233,7 @@ async def main():
           packets = packetize_pes(H264, False, False, H264_PID, 0, H264_CC)
           H264_CC = (H264_CC + len(packets)) & 0x0F
           for p in packets: m3u8.push(p)
+
     else:
       m3u8.push(packet)
 

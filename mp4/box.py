@@ -12,7 +12,7 @@ composition_matrix = bytes([
 ])
 
 def box(fourcc, data = b''):
-  total = len(b''.join(data) if type(data) is list else data)
+  total = sum(map(len, data)) if type(data) is list else len(data)
   return (8 + total).to_bytes(4, byteorder='big') + fourcc.encode('ascii') + (b''.join(data) if type(data) is list else data)
 
 def fullbox(fourcc, version, flags, data = b''):

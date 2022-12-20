@@ -180,84 +180,14 @@ async def main():
     except asyncio.IncompleteReadError:
       break
 
-    if ts.pid(packet) == 0x00:
-      PAT_Parser.push(packet)
-      for PAT in PAT_Parser:
-        if PAT.CRC32() != 0: continue
-        LAST_PAT = PAT
-
-        for program_number, program_map_PID in PAT:
-          if program_number == 0: continue
-
-          if program_number == args.SID:
-            PMT_PID = program_map_PID
-          elif not PMT_PID and not args.SID:
-            PMT_PID = program_map_PID
-
-    elif ts.pid(packet) == PMT_PID:
-      PMT_Parser.push(packet)
-      for PMT in PMT_Parser:
-        if PMT.CRC32() != 0: continue
-        LAST_PMT = PMT
-
-        PCR_PID = PMT.PCR_PID
-        for stream_type, elementary_PID in PMT:
-          if stream_type == 0x1b:
-            H264_PID = elementary_PID
-          elif stream_type == 0x24:
-            H265_PID = elementary_PID
-          elif stream_type == 0x0F:
-            AAC_PID = elementary_PID
-          elif stream_type == 0x15:
-            ID3_PID = elementary_PID
-
-    elif ts.pid(packet) == ID3_PID:
-      ID3_PES_Parser.push(packet)
-      for ID3_PES in ID3_PES_Parser:
-        timestamp = ID3_PES.pts()
-        ID3 = ID3_PES.PES_packet_data()
-        EMSG_FRAGMENTS.append(emsg(ts.HZ, timestamp, None, 'https://aomedia.org/emsg/ID3', ID3))
-
-    elif ts.pid(packet) == AAC_PID:
-      AAC_PES_Parser.push(packet)
-      for AAC_PES in AAC_PES_Parser:
-        timestamp = AAC_PES.pts()
-        begin, ADTS_AAC = 0, AAC_PES.PES_packet_data()
-        while begin < len(ADTS_AAC):
-          profile = ((ADTS_AAC[begin + 2] & 0b11000000) >> 6)
-          samplingFrequencyIndex = ((ADTS_AAC[begin + 2] & 0b00111100) >> 2)
-          channelConfiguration = ((ADTS_AAC[begin + 2] & 0b00000001) << 2) | ((ADTS_AAC[begin + 3] & 0b11000000) >> 6)
-          frameLength = ((ADTS_AAC[begin + 3] & 0x03) << 11) | (ADTS_AAC[begin + 4] << 3) | ((ADTS_AAC[begin + 5] & 0xE0) >> 5)
-          if not AAC_CONFIG:
-            """
-            AAC_CONFIG = (bytes([0x11, 0x90, 0x56, 0xe5, 0x00]), 2, 48000)
-            """
-            AAC_CONFIG = (bytes([
-              ((profile + 1) << 3) | ((samplingFrequencyIndex & 0x0E) >> 1),
-              ((samplingFrequencyIndex & 0x01) << 7) | (channelConfiguration << 3)
-            ]), channelConfiguration, SAMPLING_FREQUENCY[samplingFrequencyIndex])
-          duration = 1024 * ts.HZ // SAMPLING_FREQUENCY[samplingFrequencyIndex]
-          AAC_FRAGMENTS.append(
-            b''.join([
-              moof(0,
-                [
-                  (2, duration, timestamp, 0, [(frameLength - 7, duration, False, 0)])
-                ]
-              ),
-              mdat(bytes(ADTS_AAC[begin + 7: begin + frameLength]))
-            ])
-          )
-          timestamp += duration
-          begin += frameLength
-
-    elif ts.pid(packet) == H264_PID:
+    PID = ts.pid(packet)
+    if PID == H264_PID:
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
         hasIDR = False
         timestamp = H264.dts() or H264.pts()
         cts =  H264.pts() - timestamp
 
-        samples = []
         for ebsp in H264:
           nal_unit_type = ebsp[0] & 0x1f
 
@@ -319,14 +249,13 @@ async def main():
         while (H264_FRAGMENTS): m3u8.push(H264_FRAGMENTS.popleft())
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
 
-    elif ts.pid(packet) == H265_PID:
+    elif PID == H265_PID:
       H265_PES_Parser.push(packet)
       for H265 in H265_PES_Parser:
         hasIDR = False
         timestamp = H265.dts() or H265.pts()
         cts =  H265.pts() - timestamp
 
-        samples = []
         for ebsp in H265:
           nal_unit_type = (ebsp[0] >> 1) & 0x3f
 
@@ -389,6 +318,74 @@ async def main():
         while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
         while (H265_FRAGMENTS): m3u8.push(H265_FRAGMENTS.popleft())
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
+
+    elif PID == AAC_PID:
+      AAC_PES_Parser.push(packet)
+      for AAC_PES in AAC_PES_Parser:
+        timestamp = AAC_PES.pts()
+        begin, ADTS_AAC = 0, AAC_PES.PES_packet_data()
+        length = len(ADTS_AAC)
+        while begin < length:
+          profile = ((ADTS_AAC[begin + 2] & 0b11000000) >> 6)
+          samplingFrequencyIndex = ((ADTS_AAC[begin + 2] & 0b00111100) >> 2)
+          channelConfiguration = ((ADTS_AAC[begin + 2] & 0b00000001) << 2) | ((ADTS_AAC[begin + 3] & 0b11000000) >> 6)
+          frameLength = ((ADTS_AAC[begin + 3] & 0x03) << 11) | (ADTS_AAC[begin + 4] << 3) | ((ADTS_AAC[begin + 5] & 0xE0) >> 5)
+          if not AAC_CONFIG:
+            AAC_CONFIG = (bytes([
+              ((profile + 1) << 3) | ((samplingFrequencyIndex & 0x0E) >> 1),
+              ((samplingFrequencyIndex & 0x01) << 7) | (channelConfiguration << 3)
+            ]), channelConfiguration, SAMPLING_FREQUENCY[samplingFrequencyIndex])
+          duration = 1024 * ts.HZ // SAMPLING_FREQUENCY[samplingFrequencyIndex]
+          AAC_FRAGMENTS.append(
+            b''.join([
+              moof(0,
+                [
+                  (2, duration, timestamp, 0, [(frameLength - 7, duration, False, 0)])
+                ]
+              ),
+              mdat(bytes(ADTS_AAC[begin + 7: begin + frameLength]))
+            ])
+          )
+          timestamp += duration
+          begin += frameLength
+
+    elif PID == 0x00:
+      PAT_Parser.push(packet)
+      for PAT in PAT_Parser:
+        if PAT.CRC32() != 0: continue
+        LAST_PAT = PAT
+
+        for program_number, program_map_PID in PAT:
+          if program_number == 0: continue
+
+          if program_number == args.SID:
+            PMT_PID = program_map_PID
+          elif not PMT_PID and not args.SID:
+            PMT_PID = program_map_PID
+
+    elif PID == PMT_PID:
+      PMT_Parser.push(packet)
+      for PMT in PMT_Parser:
+        if PMT.CRC32() != 0: continue
+        LAST_PMT = PMT
+
+        PCR_PID = PMT.PCR_PID
+        for stream_type, elementary_PID in PMT:
+          if stream_type == 0x1b:
+            H264_PID = elementary_PID
+          elif stream_type == 0x24:
+            H265_PID = elementary_PID
+          elif stream_type == 0x0F:
+            AAC_PID = elementary_PID
+          elif stream_type == 0x15:
+            ID3_PID = elementary_PID
+
+    elif PID == ID3_PID:
+      ID3_PES_Parser.push(packet)
+      for ID3_PES in ID3_PES_Parser:
+        timestamp = ID3_PES.pts()
+        ID3 = ID3_PES.PES_packet_data()
+        EMSG_FRAGMENTS.append(emsg(ts.HZ, timestamp, None, 'https://aomedia.org/emsg/ID3', ID3))
 
     else:
       pass

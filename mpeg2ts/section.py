@@ -6,7 +6,7 @@ class Section:
   CRC_SIZE = 4
 
   def __init__(self, payload = b''):
-    self.payload = bytes(payload)
+    self.payload = memoryview(payload)
 
   def __getitem__(self, item):
     return self.payload[item]

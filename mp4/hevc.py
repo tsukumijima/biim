@@ -1,10 +1,13 @@
 from mp4.bitstream import BitStream
 from mp4.box import trak, tkhd, mdia, mdhd, hdlr, minf, vmhd, dinf, stbl, stsd, hvc1
 
+escapes = set([0x00, 0x01, 0x02, 0x03])
+
 def ebsp2rbsp(data):
   rbsp = bytearray(data[:2])
-  for index in range(2, len(data)):
-    if index < len(data) - 1 and data[index - 2] == 0x00 and data[index - 1] == 0x00 and data[index + 0] == 0x03 and data[index + 1] in [0x00, 0x01, 0x02, 0x03]:
+  length = len(data)
+  for index in range(2, length):
+    if index < length - 1 and data[index - 2] == 0x00 and data[index - 1] == 0x00 and data[index + 0] == 0x03 and data[index + 1] in escapes:
       continue
     rbsp.append(data[index])
   return bytes(rbsp)
