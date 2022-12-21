@@ -141,10 +141,10 @@ async def main():
 
   AAC_CONFIG = None
 
-  CURR_H264_DEQUE = deque()
-  NEXT_H264_DEQUE = deque()
-  CURR_H265_DEQUE = deque()
-  NEXT_H265_DEQUE = deque()
+  CURR_H264 = None
+  NEXT_H264 = None
+  CURR_H265 = None
+  NEXT_H265 = None
 
   H264_FRAGMENTS = deque()
   H265_FRAGMENTS = deque()
@@ -165,12 +165,12 @@ async def main():
   while True:
     isEOF = False
     while True:
-      try:
-        sync_byte = await reader.readexactly(1)
-        if sync_byte == ts.SYNC_BYTE:
-          break
-      except asyncio.IncompleteReadError:
+      sync_byte = await reader.read(1)
+      if sync_byte == ts.SYNC_BYTE:
+        break
+      elif sync_byte == b'':
         isEOF = True
+        break
     if isEOF:
       break
 
@@ -184,9 +184,10 @@ async def main():
     if PID == H264_PID:
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
-        hasIDR = False
         timestamp = H264.dts() or H264.pts()
         cts =  H264.pts() - timestamp
+        keyInSamples = False
+        samples = deque()
 
         for ebsp in H264:
           nal_unit_type = ebsp[0] & 0x1f
@@ -197,25 +198,34 @@ async def main():
             PPS = ebsp
           elif nal_unit_type == 0x09 or nal_unit_type == 0x06: # AUD or SEI
             pass
+          elif nal_unit_type == 0x05:
+            keyInSamples = True
+            samples.append(ebsp)
           else:
-            NEXT_H264_DEQUE.append((nal_unit_type, ebsp, timestamp, cts))
+            samples.append(ebsp)
+        NEXT_H264 = (keyInSamples, samples, timestamp, cts) if samples else None
 
-        while CURR_H264_DEQUE:
-          (nalu_type, ebsp, dts, cts) = CURR_H264_DEQUE.popleft()
-          isKeyframe = nalu_type == 0x05
-          hasIDR = hasIDR or isKeyframe
+        hasIDR = False
+        if CURR_H264:
+          isKeyframe, samples, dts, cts = CURR_H264
+          hasIDR = isKeyframe
           duration = (timestamp - dts + ts.HZ) % ts.HZ
+          content = bytearray()
+          while samples:
+            ebsp = samples.popleft()
+            content += len(ebsp).to_bytes(4, byteorder='big') + ebsp
+
           H264_FRAGMENTS.append(
             b''.join([
               moof(0,
                 [
-                  (1, duration, dts, 0, [(4 + len(ebsp), duration, isKeyframe, cts)])
+                  (1, duration, dts, 0, [(len(content), duration, isKeyframe, cts)])
                 ]
               ),
-              mdat(len(ebsp).to_bytes(4, byteorder='big') + ebsp)
+              mdat(content)
             ])
           )
-        NEXT_H264_DEQUE, CURR_H264_DEQUE = CURR_H264_DEQUE, NEXT_H264_DEQUE
+        NEXT_H264, CURR_H264 = CURR_H264, NEXT_H264
 
         if SPS and PPS and AAC_CONFIG and not INITIALIZATION_SEGMENT_DISPATCHED:
           init.set_result(b''.join([
@@ -252,9 +262,10 @@ async def main():
     elif PID == H265_PID:
       H265_PES_Parser.push(packet)
       for H265 in H265_PES_Parser:
-        hasIDR = False
         timestamp = H265.dts() or H265.pts()
         cts =  H265.pts() - timestamp
+        keyInSamples = False
+        samples = deque()
 
         for ebsp in H265:
           nal_unit_type = (ebsp[0] >> 1) & 0x3f
@@ -267,25 +278,34 @@ async def main():
             PPS = ebsp
           elif nal_unit_type == 0x23 or nal_unit_type == 0x27: # AUD or SEI
             pass
+          elif nal_unit_type == 19 or nal_unit_type == 20:
+            keyInSamples = True
+            samples.append(ebsp)
           else:
-            NEXT_H265_DEQUE.append((nal_unit_type, ebsp, timestamp, cts))
+            samples.append(ebsp)
+        NEXT_H265 = (keyInSamples, samples, timestamp, cts) if samples else None
 
-        while CURR_H265_DEQUE:
-          (nalu_type, ebsp, dts, cts) = CURR_H265_DEQUE.popleft()
-          isKeyframe = (nalu_type == 19 or nalu_type == 20)
-          hasIDR = hasIDR or isKeyframe
+        hasIDR = False
+        if CURR_H265:
+          isKeyframe, samples, dts, cts = CURR_H265
+          hasIDR = isKeyframe
           duration = (timestamp - dts + ts.HZ) % ts.HZ
+          content = bytearray()
+          while samples:
+            ebsp = samples.popleft()
+            content += len(ebsp).to_bytes(4, byteorder='big') + ebsp
+
           H265_FRAGMENTS.append(
             b''.join([
               moof(0,
                 [
-                  (1, duration, dts, 0, [(4 + len(ebsp), duration, isKeyframe, cts)])
+                  (1, duration, dts, 0, [(len(content), duration, isKeyframe, cts)])
                 ]
               ),
-              mdat(len(ebsp).to_bytes(4, byteorder='big') + ebsp)
+              mdat(content)
             ])
           )
-        NEXT_H265_DEQUE, CURR_H265_DEQUE = CURR_H265_DEQUE, NEXT_H265_DEQUE
+        NEXT_H265, CURR_H265 = CURR_H265, NEXT_H265
 
         if VPS and SPS and PPS and AAC_CONFIG and not INITIALIZATION_SEGMENT_DISPATCHED:
           init.set_result(b''.join([

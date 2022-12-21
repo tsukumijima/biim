@@ -129,11 +129,12 @@ async def main():
     isEOF = False
     while True:
       try:
-        sync_byte = await reader.readexactly(1)
+        sync_byte = await reader.read(1)
         if sync_byte == ts.SYNC_BYTE:
           break
-      except asyncio.IncompleteReadError:
-        isEOF = True
+        elif sync_byte == b'':
+          isEOF = True
+          break
     if isEOF:
       break
 

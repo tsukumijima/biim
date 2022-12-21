@@ -3,7 +3,6 @@
 from mpeg2ts.pes import PES
 
 import re
-
 SPLIT = re.compile('\0\0\0?\1'.encode('ascii'))
 
 class H264PES(PES):
