@@ -72,7 +72,7 @@ async def main():
     msn = int(msn)
     if part is None: part = 0
     part = int(part)
-    future = m3u8.partial(msn, part) 
+    future = m3u8.partial(msn, part)
     if future is None:
       return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp2t")
 
@@ -128,13 +128,12 @@ async def main():
   while True:
     isEOF = False
     while True:
-      try:
-        sync_byte = await reader.read(1)
-        if sync_byte == ts.SYNC_BYTE:
-          break
-        elif sync_byte == b'':
-          isEOF = True
-          break
+      sync_byte = await reader.read(1)
+      if sync_byte == ts.SYNC_BYTE:
+        break
+      elif sync_byte == b'':
+        isEOF = True
+        break
     if isEOF:
       break
 
