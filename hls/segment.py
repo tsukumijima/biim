@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import math
+import os
 import asyncio
 from datetime import datetime, timedelta
 
@@ -12,19 +13,31 @@ class PartialSegment:
     self.endPTS = None
     self.hasIFrame = isIFrame
     self.buffer = bytearray()
-    self.futures = []
+    self.writers = []
     self.m3u8s = []
 
   def push(self, packet):
     self.buffer += packet
+    for w in self.writers: w.write(packet)
 
-  def future(self):
-    f = asyncio.Future()
+  async def pipe(self):
+    rpipe, wpipe = os.pipe()
+    r = open(rpipe, 'rb')
+    w = open(wpipe, 'wb')
+
+    loop = asyncio.get_running_loop()
+    reader = asyncio.StreamReader(loop=loop)
+    await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader, loop=loop), r)
+
+    writer_transport, writer_protocol = await loop.connect_write_pipe(lambda: asyncio.streams.FlowControlMixin(loop=loop), w)
+    writer = asyncio.streams.StreamWriter(writer_transport, writer_protocol, None, loop)
+
+    writer.write(self.buffer)
     if (self.isCompleted()):
-      f.set_result(bytes(self.buffer))
+      writer.write_eof()
     else:
-      self.futures.append(f)
-    return f
+      self.writers.append(writer)
+    return reader
 
   def m3u8(self):
     f = asyncio.Future()
@@ -34,7 +47,7 @@ class PartialSegment:
 
   def complete(self, endPTS):
     self.endPTS = endPTS
-    for f in self.futures: f.set_result(bytes(self.buffer))
+    for w in self.writers: w.write_eof()
 
   def isCompleted(self):
     return self.endPTS is not None

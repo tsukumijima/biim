@@ -64,16 +64,16 @@ class M3U8:
     for m in self.segments[-1].partials[-1].m3u8s:
       if not m.done(): m.set_result(self.manifest())
 
-  def segment(self, msn):
+  async def segment(self, msn):
     if not self.in_range(msn): return None
     index = msn - self.media_sequence
-    return self.segments[index].future()
+    return await self.segments[index].pipe()
 
-  def partial(self, msn, part):
+  async def partial(self, msn, part):
     if not self.in_range(msn): return None
     index = msn - self.media_sequence
     if part > len(self.segments[index].partials): return None
-    return self.segments[index].partials[part].future()
+    return await self.segments[index].partials[part].pipe()
 
   def target_duration(self):
     target_duration = 1
