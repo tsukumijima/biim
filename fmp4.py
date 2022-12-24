@@ -84,16 +84,16 @@ async def main():
 
     if msn is None: msn = 0
     msn = int(msn)
-    reader = await m3u8.segment(msn)
-    if reader is None:
+    queue = await m3u8.segment(msn)
+    if queue is None:
       return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
 
     response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Content-Type': 'video/mp4'}, status=200)
     await response.prepare(request)
 
     while True:
-      stream = await reader.read(1024)
-      if stream == b'': break
+      stream = await queue.get()
+      if stream == None : break
       await response.write(stream)
 
     await response.write_eof()
@@ -107,16 +107,16 @@ async def main():
     msn = int(msn)
     if part is None: part = 0
     part = int(part)
-    reader = await m3u8.partial(msn, part)
-    if reader is None:
+    queue = await m3u8.partial(msn, part)
+    if queue is None:
       return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
 
     response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Content-Type': 'video/mp4'}, status=200)
     await response.prepare(request)
 
     while True:
-      stream = await reader.read(1024)
-      if stream == b'': break
+      stream = await queue.get()
+      if stream == None : break
       await response.write(stream)
 
     await response.write_eof()

@@ -57,12 +57,20 @@ async def main():
 
     if msn is None: msn = 0
     msn = int(msn)
-    future = m3u8.segment(msn)
-    if future is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp2t")
+    queue = await m3u8.segment(msn)
+    if queue is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
 
-    body = await future
-    return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/mp2t")
+    response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Content-Type': 'video/mp4'}, status=200)
+    await response.prepare(request)
+
+    while True:
+      stream = await queue.get()
+      if stream == None : break
+      await response.write(stream)
+
+    await response.write_eof()
+    return response
   async def partial(request):
     nonlocal m3u8
     msn = request.query['msn'] if 'msn' in request.query else None
@@ -72,12 +80,20 @@ async def main():
     msn = int(msn)
     if part is None: part = 0
     part = int(part)
-    future = m3u8.partial(msn, part)
-    if future is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp2t")
+    queue = await m3u8.partial(msn, part)
+    if queue is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
 
-    body = await future
-    return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/mp2t")
+    response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Content-Type': 'video/mp4'}, status=200)
+    await response.prepare(request)
+
+    while True:
+      stream = await queue.get()
+      if stream == None : break
+      await response.write(stream)
+
+    await response.write_eof()
+    return response
 
   # setup aiohttp
   app = web.Application()
