@@ -27,7 +27,7 @@ class PartialSegment:
     if (self.isCompleted()):
       queue.put_nowait(None)
     else:
-      self.queues.append(writer)
+      self.queues.append(queue)
     return queue
 
   def m3u8(self):
