@@ -240,15 +240,13 @@ async def main():
               push_PAT_PMT(LAST_PAT, LAST_PMT)
           else:
             PARTIAL_BEGIN_TIMESTAMP = timestamp
-            m3u8.completeSegment(PARTIAL_BEGIN_TIMESTAMP)
-            m3u8.newSegment(PARTIAL_BEGIN_TIMESTAMP, True)
+            m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
             push_PAT_PMT(LAST_PAT, LAST_PMT)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
           PART_DIFF = (timestamp - PARTIAL_BEGIN_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE
           if args.part_duration * ts.HZ < PART_DIFF:
             PARTIAL_BEGIN_TIMESTAMP = timestamp
-            m3u8.completePartial(PARTIAL_BEGIN_TIMESTAMP)
-            m3u8.newPartial(PARTIAL_BEGIN_TIMESTAMP)
+            m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         if FIRST_IDR_DETECTED:
           packets = packetize_pes(H264, False, False, H264_PID, 0, H264_CC)

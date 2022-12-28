@@ -78,6 +78,30 @@ class M3U8:
     for m in self.segments[-1].partials[-1].m3u8s:
       if not m.done(): m.set_result(self.manifest())
 
+  def continuousSegment(self, endPTS, isIFrame = False):
+    lastSegment = self.segments[-1] if self.segments else None
+    self.newSegment(endPTS, isIFrame)
+
+    self.published = True
+    if lastSegment:
+      lastSegment.complete(endPTS)
+      for m in lastSegment.partials[-1].m3u8s:
+        if not m.done(): m.set_result(self.manifest())
+      for m in lastSegment.m3u8s:
+        if not m.done(): m.set_result(self.manifest())
+    for f in self.futures: f.set_result(self.manifest())
+    self.futures = []
+
+  def continuousPartial(self, endPTS, isIFrame = False):
+    lastSegment = self.segments[-1] if self.segments else None
+    lastPartial = lastSegment.partials[-1] if lastSegment else None
+    self.newPartial(endPTS, isIFrame)
+
+    if not lastPartial: return
+    lastPartial.complete(endPTS)
+    for m in lastPartial.m3u8s:
+      if not m.done(): m.set_result(self.manifest())
+
   async def segment(self, msn):
     if not self.in_range(msn): return None
     index = msn - self.media_sequence
