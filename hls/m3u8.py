@@ -58,7 +58,7 @@ class M3U8:
 
   def newPartial(self, beginPTS, isIFrame = False):
     if not self.segments: return
-    self.segments[-1].newPartial(beginPTS)
+    self.segments[-1].newPartial(beginPTS, isIFrame)
 
   def completeSegment(self, endPTS):
     self.published = True
