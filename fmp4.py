@@ -67,12 +67,17 @@ async def main():
     part = request.query['_HLS_part'] if '_HLS_part' in request.query else None
 
     if msn is None and part is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, text=m3u8.manifest(), content_type="application/x-mpegURL")
+      future = m3u8.plain()
+      if future is None:
+        return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="application/x-mpegURL")
+
+      result = await future
+      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, text=result, content_type="application/x-mpegURL")
     else:
       msn = int(msn)
       if part is None: part = 0
       part = int(part)
-      future = m3u8.future(msn, part)
+      future = m3u8.blocking(msn, part)
       if future is None:
         return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="application/x-mpegURL")
 

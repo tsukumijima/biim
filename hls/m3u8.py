@@ -12,11 +12,21 @@ class M3U8:
     self.list_size = list_size
     self.hasInit = hasInit
     self.segments = deque()
+    self.published = False
+    self.futures = []
 
   def in_range(self, msn):
     return self.media_sequence <= msn and msn < self.media_sequence + len(self.segments)
 
-  def future(self, msn, part):
+  def plain(self):
+    f = asyncio.Future()
+    if self.published:
+      f.set_result(self.manifest())
+    else:
+      self.futures.append(f)
+    return f
+
+  def blocking(self, msn, part):
     if not self.in_range(msn): return None
 
     f = asyncio.Future()
@@ -51,12 +61,16 @@ class M3U8:
     self.segments[-1].newPartial(beginPTS)
 
   def completeSegment(self, endPTS):
+    self.published = True
+
     if not self.segments: return
     self.segments[-1].complete(endPTS)
     for m in self.segments[-1].partials[-1].m3u8s:
       if not m.done(): m.set_result(self.manifest())
     for m in self.segments[-1].m3u8s:
       if not m.done(): m.set_result(self.manifest())
+    for f in self.futures: f.set_result(self.manifest())
+    self.futures = []
 
   def completePartial(self, endPTS):
     if not self.segments: return
