@@ -62,7 +62,7 @@ class Segment(PartialSegment):
     return iter(self.partials)
 
   def __len__(self):
-    return len(self.parital)
+    return len(self.partials)
 
   def push(self, packet):
     super().push(packet)
