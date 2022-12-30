@@ -39,6 +39,7 @@ class PartialSegment:
   def complete(self, endPTS):
     self.endPTS = endPTS
     for q in self.queues: q.put_nowait(None)
+    self.queues = []
 
   def isCompleted(self):
     return self.endPTS is not None
