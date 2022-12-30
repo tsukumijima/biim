@@ -297,7 +297,7 @@ async def main():
             PPS = ebsp
           elif nal_unit_type == 0x23 or nal_unit_type == 0x27: # AUD or SEI
             pass
-          elif nal_unit_type == 19 or nal_unit_type == 20:
+          elif nal_unit_type == 19 or nal_unit_type == 20 or nal_unit_type == 21: # IDR_W_RADL, IDR_W_LP, CRA_NUT
             keyInSamples = True
             samples.append(ebsp)
           else:
