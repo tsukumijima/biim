@@ -215,6 +215,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
             commonInfPresentFlag = 1
             nal_hrd_parameters_present_flag = False
             vcl_hrd_parameters_present_flag = False
+            sub_pic_hrd_params_present_flag = False
             if commonInfPresentFlag:
               nal_hrd_parameters_present_flag = stream.readBool()
               vcl_hrd_parameters_present_flag = stream.readBool()
@@ -242,7 +243,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
               if fixed_pic_rate_within_cvs_flag: stream.readSEG()
               else:
                 low_delay_hrd_flag = stream.readBool()
-              if not low_delay_hrd_flag: cpbcnt = stream.readUEG() + 1
+              if not low_delay_hrd_flag: cpbCnt = stream.readUEG() + 1
               if nal_hrd_parameters_present_flag:
                 for j in range(0, cpbCnt):
                   stream.readUEG()
