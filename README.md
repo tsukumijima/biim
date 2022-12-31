@@ -8,8 +8,10 @@ An example for Apple Low Lantency HLS Packager and Origin
       * Support TIMED-ID3 Metadata PassThrough
     * `fmp4.py`: Packaging MPEG-TS stream to fmp4 segment (for H.265/HEVC, AAC, ID3)
       * Support TIMED-ID3 Metadata to EMSG-ID3 Conversion
-  * Support LL-HLS Feature
-    * Support Blocking Request for Low Latency Contents Delivery
+  * Support LL-HLS Feature (1s Latency with HTTP/2, 2s Latency with HTTP/1.1)
+    * Support Blocking Request
+    * Support EXT-X-PRELOAD-HINT with Chunked Transfer
+    * NOTE: HTTP/2 is currently not Supported. If use with HTTP/2, please proxing HTTP/2 to HTTP/1.1.
   * In Memory (On the fly) LL-HLS Serving
     * Not use disk space for LL-HLS Delivery
 

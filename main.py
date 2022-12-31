@@ -244,8 +244,8 @@ async def main():
             push_PAT_PMT(LAST_PAT, LAST_PMT)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
           PART_DIFF = (timestamp - PARTIAL_BEGIN_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE
-          if args.part_duration * ts.HZ < PART_DIFF:
-            PARTIAL_BEGIN_TIMESTAMP = timestamp
+          if args.part_duration * ts.HZ <= PART_DIFF:
+            PARTIAL_BEGIN_TIMESTAMP = (timestamp - max(0, PART_DIFF - (args.part_duration * ts.HZ)) + ts.PCR_CYCLE) % ts.PCR_CYCLE
             m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         if FIRST_IDR_DETECTED:

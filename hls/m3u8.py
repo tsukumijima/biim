@@ -9,6 +9,8 @@ from hls.segment import Segment
 class M3U8:
   def __init__(self, target_duration, part_target, list_size, hasInit = False):
     self.media_sequence = 0
+    self.target_duration = target_duration
+    self.part_target = part_target
     self.list_size = list_size
     self.hasInit = hasInit
     self.segments = deque()
@@ -119,26 +121,13 @@ class M3U8:
     if part > len(self.segments[index].partials): return None
     return await self.segments[index].partials[part].response()
 
-  def target_duration(self):
-    target_duration = 1
-    for segment in self.segments:
-      if segment.isCompleted(): target_duration = max(target_duration, math.ceil(segment.extinf().total_seconds()))
-    return target_duration
-
-  def part_target(self):
-    part_duration = 0.1
-    for segment in self.segments:
-      for partial in segment:
-        if partial.isCompleted(): part_duration = max(part_duration, partial.extinf().total_seconds())
-    return part_duration
-
   def manifest(self):
     m3u8 = ''
     m3u8 += f'#EXTM3U\n'
     m3u8 += f'#EXT-X-VERSION:6\n'
-    m3u8 += f'#EXT-X-TARGETDURATION:{self.target_duration()}\n'
-    m3u8 += f'#EXT-X-PART-INF:PART-TARGET={self.part_target():.06f}\n'
-    m3u8 += f'#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={(self.part_target() * 3.5):.06f}\n'
+    m3u8 += f'#EXT-X-TARGETDURATION:{self.target_duration}\n'
+    m3u8 += f'#EXT-X-PART-INF:PART-TARGET={self.part_target:.06f}\n'
+    m3u8 += f'#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={(self.part_target * 3):.06f}\n'
     m3u8 += f'#EXT-X-MEDIA-SEQUENCE:{self.media_sequence}\n'
 
     if self.hasInit:
@@ -153,7 +142,7 @@ class M3U8:
         if not partial.isCompleted():
           m3u8 += f'#EXT-X-PRELOAD-HINT:TYPE=PART,URI="part?msn={msn}&part={part_index}"{hasIFrame}\n'
         else:
-          m3u8 += f'#EXT-X-PART:DURATION={partial.extinf().total_seconds()},URI="part?msn={msn}&part={part_index}"{hasIFrame}\n'
+          m3u8 += f'#EXT-X-PART:DURATION={partial.extinf().total_seconds():.06f},URI="part?msn={msn}&part={part_index}"{hasIFrame}\n'
 
       if segment.isCompleted():
         m3u8 += f'#EXTINF:{segment.extinf().total_seconds():.06f}\n'

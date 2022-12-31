@@ -270,8 +270,8 @@ async def main():
           m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
           PART_DIFF = (timestamp - PARTIAL_BEGIN_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE
-          if args.part_duration * ts.HZ < PART_DIFF:
-            PARTIAL_BEGIN_TIMESTAMP = timestamp
+          if args.part_duration * ts.HZ <= PART_DIFF:
+            PARTIAL_BEGIN_TIMESTAMP = (timestamp - max(0, PART_DIFF - (args.part_duration * ts.HZ)) + ts.PCR_CYCLE) % ts.PCR_CYCLE
             m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
@@ -348,8 +348,8 @@ async def main():
           m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
           PART_DIFF = (timestamp - PARTIAL_BEGIN_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE
-          if args.part_duration * ts.HZ < PART_DIFF:
-            PARTIAL_BEGIN_TIMESTAMP = timestamp
+          if args.part_duration * ts.HZ <= PART_DIFF:
+            PARTIAL_BEGIN_TIMESTAMP = (timestamp - max(0, PART_DIFF - (args.part_duration * ts.HZ)) + ts.PCR_CYCLE) % ts.PCR_CYCLE
             m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
