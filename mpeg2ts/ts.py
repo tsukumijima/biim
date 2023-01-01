@@ -38,7 +38,7 @@ def pointer_field(packet):
   return packet[HEADER_SIZE + (1 + adaptation_field_length(packet) if has_adaptation_field(packet) else 0)]
 
 def has_pcr(packet):
-  return has_adaptation_field(packet) and (packet[HEADER_SIZE + 1] & 0x10) != 0
+  return has_adaptation_field(packet) and adaptation_field_length(packet) > 0 and (packet[HEADER_SIZE + 1] & 0x10) != 0
 
 def pcr(packet):
   if not has_pcr(packet): return None
@@ -50,5 +50,3 @@ def pcr(packet):
   pcr_base = (pcr_base << 8) | ((packet[HEADER_SIZE + 1 + 4] & 0xFF) >> 0)
   pcr_base = (pcr_base << 1) | ((packet[HEADER_SIZE + 1 + 5] & 0x80) >> 7)
   return pcr_base
-
-  

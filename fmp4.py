@@ -153,8 +153,11 @@ async def main():
   H265_PES_Parser = PESParser(H265PES)
   ID3_PES_Parser = PESParser(PES)
 
-  PMT_PID = None
   PCR_PID = None
+  LATEST_PCR_VALUE = None
+  LATEST_PCR_TIMESTAMP_90KHZ = 0
+
+  PMT_PID = None
   AAC_PID = None
   H264_PID = None
   H265_PID = None
@@ -205,8 +208,9 @@ async def main():
     if PID == H264_PID:
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
-        timestamp = H264.dts() or H264.pts()
-        cts =  H264.pts() - timestamp
+        if LATEST_PCR_VALUE is None: continue
+        timestamp = (((H264.dts() or H264.pts()) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+        cts = (H264.pts() - (H264.dts() or H264.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
         keyInSamples = False
         samples = deque()
 
@@ -230,7 +234,7 @@ async def main():
         if CURR_H264:
           isKeyframe, samples, dts, cts = CURR_H264
           hasIDR = isKeyframe
-          duration = (timestamp - dts + ts.HZ) % ts.HZ
+          duration = timestamp - dts
           content = bytearray()
           while samples:
             ebsp = samples.popleft()
@@ -269,9 +273,9 @@ async def main():
           PARTIAL_BEGIN_TIMESTAMP = timestamp
           m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
-          PART_DIFF = (timestamp - PARTIAL_BEGIN_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE
+          PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
           if args.part_duration * ts.HZ <= PART_DIFF:
-            PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - (args.part_duration * ts.HZ)) + ts.PCR_CYCLE) % ts.PCR_CYCLE
+            PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
             m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
@@ -281,8 +285,9 @@ async def main():
     elif PID == H265_PID:
       H265_PES_Parser.push(packet)
       for H265 in H265_PES_Parser:
-        timestamp = H265.dts() or H265.pts()
-        cts =  H265.pts() - timestamp
+        if LATEST_PCR_VALUE is None: continue
+        timestamp = (((H265.dts() or H265.pts()) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+        cts = (H265.pts() - (H265.dts() or H265.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
         keyInSamples = False
         samples = deque()
 
@@ -308,7 +313,7 @@ async def main():
         if CURR_H265:
           isKeyframe, samples, dts, cts = CURR_H265
           hasIDR = isKeyframe
-          duration = (timestamp - dts + ts.HZ) % ts.HZ
+          duration = timestamp - dts
           content = bytearray()
           while samples:
             ebsp = samples.popleft()
@@ -347,9 +352,9 @@ async def main():
           PARTIAL_BEGIN_TIMESTAMP = timestamp
           m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
-          PART_DIFF = (timestamp - PARTIAL_BEGIN_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE
+          PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
           if args.part_duration * ts.HZ <= PART_DIFF:
-            PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - (args.part_duration * ts.HZ)) + ts.PCR_CYCLE) % ts.PCR_CYCLE
+            PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
             m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
@@ -359,7 +364,8 @@ async def main():
     elif PID == AAC_PID:
       AAC_PES_Parser.push(packet)
       for AAC_PES in AAC_PES_Parser:
-        timestamp = AAC_PES.pts()
+        if LATEST_PCR_VALUE is None: continue
+        timestamp = ((AAC_PES.pts() - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
         begin, ADTS_AAC = 0, AAC_PES.PES_packet_data()
         length = len(ADTS_AAC)
         while begin < length:
@@ -420,12 +426,19 @@ async def main():
     elif PID == ID3_PID:
       ID3_PES_Parser.push(packet)
       for ID3_PES in ID3_PES_Parser:
-        timestamp = ID3_PES.pts()
+        if LATEST_PCR_VALUE is None: continue
+        timestamp = ((ID3_PES.pts() - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
         ID3 = ID3_PES.PES_packet_data()
         EMSG_FRAGMENTS.append(emsg(ts.HZ, timestamp, None, 'https://aomedia.org/emsg/ID3', ID3))
 
     else:
       pass
+
+    if PID == PCR_PID and ts.has_pcr(packet):
+      PCR_VALUE = ts.pcr(packet)
+      if LATEST_PCR_VALUE is not None:
+        LATEST_PCR_TIMESTAMP_90KHZ += (PCR_VALUE - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE
+      LATEST_PCR_VALUE = PCR_VALUE
 
 if __name__ == '__main__':
   asyncio.run(main())
