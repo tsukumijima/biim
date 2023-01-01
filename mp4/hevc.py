@@ -28,6 +28,8 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
   sar_height = 1
   pic_width_in_luma_samples = None
   pic_height_in_luma_samples = None
+  codec_width = None
+  codec_height = None
 
   def parseSPS():
     nonlocal general_profile_space
@@ -42,6 +44,8 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
 
     nonlocal pic_width_in_luma_samples
     nonlocal pic_height_in_luma_samples
+    nonlocal codec_width
+    nonlocal codec_height
 
     left_offset = 0
     right_offset = 0
@@ -79,7 +83,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
 
     seq_parameter_set_id = stream.readUEG()
     chroma_format_idc = stream.readUEG()
-    if chroma_format_idc == 3: stream.readBits(1)
+    if chroma_format_idc == 3: stream.readBool()
     pic_width_in_luma_samples = stream.readUEG()
     pic_height_in_luma_samples = stream.readUEG()
     conformance_window_flag = stream.readBool()
@@ -199,10 +203,10 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
       frame_field_info_present_flag = stream.readBool()
       default_display_window_flag = stream.readBool()
       if default_display_window_flag:
-        left_offset += stream.readUEG()
-        right_offset += stream.readUEG()
-        top_offset += stream.readUEG()
-        bottom_offset += stream.readUEG()
+        stream.readUEG()
+        stream.readUEG()
+        stream.readUEG()
+        stream.readUEG()
       vui_timing_info_present_flag = stream.readBool()
       if vui_timing_info_present_flag:
         fps_den = stream.readByte(4)
@@ -268,6 +272,11 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
         max_bits_per_min_cu_denom = stream.readUEG()
         log2_max_mv_length_horizontal = stream.readUEG()
         log2_max_mv_length_vertical = stream.readUEG()
+
+      sub_wc = 2 if chroma_format_idc in [1, 2] else 1
+      sub_hc = 2 if chroma_format_idc == 1 else 1
+      codec_width = pic_width_in_luma_samples - (left_offset + right_offset) * sub_wc
+      codec_height = pic_height_in_luma_samples - (top_offset + bottom_offset) * sub_hc
   parseSPS()
 
   temporal_id_nesting_flag = False
@@ -369,7 +378,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
   ])
 
   return trak(
-    tkhd(trackId, (pic_width_in_luma_samples * sar_width + (sar_height - 1)) // sar_height, pic_height_in_luma_samples),
+    tkhd(trackId, (codec_width * sar_width + (sar_height - 1)) // sar_height, codec_height),
     mdia(
       mdhd(timescale),
       hdlr('vide', 'videohandler'),
@@ -378,7 +387,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
         dinf(),
         stbl(
           stsd(
-            hvc1(hvcC, pic_width_in_luma_samples, pic_height_in_luma_samples)
+            hvc1(hvcC, codec_width, codec_height)
           )
         )
       )
