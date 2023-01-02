@@ -270,6 +270,11 @@ async def main():
           INITIALIZATION_SEGMENT_DISPATCHED = True
 
         if hasIDR:
+          if PARTIAL_BEGIN_TIMESTAMP is not None:
+            PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+            if args.part_duration * ts.HZ < PART_DIFF:
+              PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+              m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
           PARTIAL_BEGIN_TIMESTAMP = timestamp
           m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
@@ -349,6 +354,11 @@ async def main():
           INITIALIZATION_SEGMENT_DISPATCHED = True
 
         if hasIDR:
+          if PARTIAL_BEGIN_TIMESTAMP is not None:
+            PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+            if args.part_duration * ts.HZ < PART_DIFF:
+              PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+              m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
           PARTIAL_BEGIN_TIMESTAMP = timestamp
           m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:

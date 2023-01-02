@@ -239,6 +239,10 @@ async def main():
               m3u8.newSegment(PARTIAL_BEGIN_TIMESTAMP, True)
               push_PAT_PMT(LAST_PAT, LAST_PMT)
           else:
+            PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+            if args.part_duration * ts.HZ < PART_DIFF:
+              PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+              m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
             PARTIAL_BEGIN_TIMESTAMP = timestamp
             m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
             push_PAT_PMT(LAST_PAT, LAST_PMT)
