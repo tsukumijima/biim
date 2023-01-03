@@ -94,18 +94,18 @@ class M3U8:
     lastSegment = self.segments[-1] if self.segments else None
     self.newSegment(endPTS, isIFrame)
 
-    if lastSegment:
-      self.published = True
-      lastSegment.complete(endPTS)
-      for m in lastSegment.partials[-1].m3u8s:
-        if not m.done(): m.set_result(self.manifest())
-      lastSegment.partials[-1].m3u8s = []
-      for m in lastSegment.m3u8s:
-        if not m.done(): m.set_result(self.manifest())
-      lastSegment.m3u8s = []
-      for f in self.futures:
-        if not f.done(): f.set_result(self.manifest())
-      self.futures = []
+    if not lastSegment: return
+    self.published = True
+    lastSegment.complete(endPTS)
+    for m in lastSegment.partials[-1].m3u8s:
+      if not m.done(): m.set_result(self.manifest())
+    lastSegment.partials[-1].m3u8s = []
+    for m in lastSegment.m3u8s:
+      if not m.done(): m.set_result(self.manifest())
+    lastSegment.m3u8s = []
+    for f in self.futures:
+      if not f.done(): f.set_result(self.manifest())
+    self.futures = []
 
   def continuousPartial(self, endPTS, isIFrame = False):
     lastSegment = self.segments[-1] if self.segments else None
