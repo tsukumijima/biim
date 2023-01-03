@@ -209,8 +209,8 @@ async def main():
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
         if LATEST_PCR_VALUE is None: continue
-        timestamp = (((H264.dts() or H264.pts()) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
-        cts = (H264.pts() - (H264.dts() or H264.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
+        timestamp = (((H264.dts() if H264.has_dts() else H264.pts()) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+        cts = (H264.pts() - (H264.dts() if H264.has_dts() else H264.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
         keyInSamples = False
         samples = deque()
 
@@ -291,8 +291,8 @@ async def main():
       H265_PES_Parser.push(packet)
       for H265 in H265_PES_Parser:
         if LATEST_PCR_VALUE is None: continue
-        timestamp = (((H265.dts() or H265.pts()) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
-        cts = (H265.pts() - (H265.dts() or H265.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
+        timestamp = (((H265.dts() if H265.has_dts() else  H265.pts()) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+        cts = (H265.pts() - (H265.dts() if H265.has_dts() else  H265.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
         keyInSamples = False
         samples = deque()
 

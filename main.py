@@ -204,7 +204,7 @@ async def main():
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
         hasIDR = False
-        timestamp = H264.dts() or H264.pts()
+        timestamp = H264.dts() if H264.has_dts() else H264.pts()
 
         data = H264.PES_packet_data()
         begin = 0
