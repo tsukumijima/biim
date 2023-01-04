@@ -54,6 +54,7 @@ async def main():
   parser.add_argument('-l', '--list_size', type=int, nargs='?')
   parser.add_argument('-t', '--target_duration', type=int, nargs='?', default=1)
   parser.add_argument('-p', '--part_duration', type=float, nargs='?', default=0.1)
+  parser.add_argument('-o', '--pcr_offset', type=int, nargs='?', default=0)
   parser.add_argument('--port', type=int, nargs='?', default=8080)
 
   args = parser.parse_args()
@@ -445,7 +446,7 @@ async def main():
       pass
 
     if PID == PCR_PID and ts.has_pcr(packet):
-      PCR_VALUE = ts.pcr(packet)
+      PCR_VALUE = (ts.pcr(packet) - args.pcr_offset + ts.PCR_CYCLE) % ts.PCR_CYCLE
       if LATEST_PCR_VALUE is not None:
         LATEST_PCR_TIMESTAMP_90KHZ += (PCR_VALUE - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE
       LATEST_PCR_VALUE = PCR_VALUE
