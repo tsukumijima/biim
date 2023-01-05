@@ -55,11 +55,11 @@ def tkhd(trackId, width, height):
     (0).to_bytes(4, byteorder='big'), # creation_time
     (0).to_bytes(4, byteorder='big'), # modification_time
     trackId.to_bytes(4, byteorder='big'), # trackId
+    (0).to_bytes(4, byteorder='big'), # reserved: 4 byte
     (0).to_bytes(4, byteorder='big'), # duration
     (0).to_bytes(4 * 2, byteorder='big'), # reserved: 4 + 4 bytes
     (0).to_bytes(4 * 2, byteorder='big'), # layer(2bytes) + alternate_group(2bytes), volume(2bytes) + reserved(2bytes)
     composition_matrix, # composition_matrix
-    b'\xFF\xFF\xFF\xFF', # next_track_ID
     (width).to_bytes(2, byteorder='big') + b'\x00\x00', # width
     (height).to_bytes(2, byteorder='big') + b'\x00\x00', # height
   ])
