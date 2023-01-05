@@ -130,7 +130,7 @@ async def main():
     if init is None:
       return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
 
-    body = await init
+    body = await asyncio.shield(init)
     return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/mp4")
 
   # setup aiohttp

@@ -35,7 +35,7 @@ class SectionParser:
       while begin < ts.PACKET_SIZE:
         if packet[begin] == ts.STUFFING_BYTE[0]: break
         if self.section:
-          next = min(begin + self.section.remains(packet), ts.PACKET_SIZE)
+          next = min(begin + (((self.section[1] & 0x0F) << 8) | self.section[2]), ts.PACKET_SIZE)
         else:
           section_length = ((packet[begin + 1] & 0x0F) << 8) | packet[begin + 2]
           next = min(begin + (3 + section_length), ts.PACKET_SIZE)
