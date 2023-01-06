@@ -74,7 +74,7 @@ class BitStream:
   def readSEG(self):
     ueg = self.readUEG()
     if ueg % 2 == 1:
-      return ueg
+      return (ueg + 1) >> 1
     else:
       return -1 * (ueg >> 1)
 
