@@ -223,7 +223,7 @@ def remux(segment, end):
                 fmp4 += b''.join([
                   moof(0,
                     [
-                      (2, AAC_DATA[1], AAC_DATA[0], 0, [(AAC_DATA[2], AAC_DATA[0], True, 0)])
+                      (2, AAC_DATA[1], AAC_DATA[0], 0, [(AAC_DATA[2], AAC_DATA[1], True, 0)])
                     ]
                   ),
                   mdat(AAC_DATA[3])
@@ -248,7 +248,7 @@ def remux(segment, end):
             fmp4 += b''.join([
               moof(0,
                 [
-                  (2, AAC_DATA[1], AAC_DATA[0], 0, [(AAC_DATA[2], AAC_DATA[0], True, 0)])
+                  (2, AAC_DATA[1], AAC_DATA[0], 0, [(AAC_DATA[2], AAC_DATA[1], True, 0)])
                 ]
               ),
               mdat(AAC_DATA[3])
