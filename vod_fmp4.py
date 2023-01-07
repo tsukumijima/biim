@@ -215,7 +215,7 @@ def remux(segment, end):
         begin, ADTS_AAC = 0, AAC_PES.PES_packet_data()
         length = len(ADTS_AAC)
         while begin < length:
-          protection = (ADTS_AAC[begin + 2] & 0b00000001) == 0
+          protection = (ADTS_AAC[begin + 1] & 0b00000001) == 0
           profile = ((ADTS_AAC[begin + 2] & 0b11000000) >> 6)
           samplingFrequencyIndex = ((ADTS_AAC[begin + 2] & 0b00111100) >> 2)
           channelConfiguration = ((ADTS_AAC[begin + 2] & 0b00000001) << 2) | ((ADTS_AAC[begin + 3] & 0b11000000) >> 6)
