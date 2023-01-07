@@ -72,6 +72,7 @@ def remux(segment, end):
   ID3_PID = None
 
   AAC_CONFIG = None
+  AAC_DATA = None
 
   CURR_H264 = None
   NEXT_H264 = None
@@ -214,7 +215,22 @@ def remux(segment, end):
         timestamp = AAC_PES.pts()
         begin, ADTS_AAC = 0, AAC_PES.PES_packet_data()
         length = len(ADTS_AAC)
-        while begin < length:
+        while begin + 1 < length:
+          if ((ADTS_AAC[begin + 0] << 4) | ((ADTS_AAC[begin + 1] & 0xF0) >> 4)) != 0xFFF:
+            if AAC_DATA is not None:
+              AAC_DATA[3].extend(ADTS_AAC[begin:begin+1])
+              fmp4 += b''.join([
+                moof(0,
+                  [
+                    (2, AAC_DATA[1], AAC_DATA[0], 0, [(AAC_DATA[2], AAC_DATA[0], True, 0)])
+                  ]
+                ),
+                mdat(AAC_DATA[3])
+              ])
+              AAC_DATA = None
+            begin += 1
+            continue
+
           protection = (ADTS_AAC[begin + 1] & 0b00000001) == 0
           profile = ((ADTS_AAC[begin + 2] & 0b11000000) >> 6)
           samplingFrequencyIndex = ((ADTS_AAC[begin + 2] & 0b00111100) >> 2)
@@ -226,14 +242,17 @@ def remux(segment, end):
               ((samplingFrequencyIndex & 0x01) << 7) | (channelConfiguration << 3)
             ]), channelConfiguration, SAMPLING_FREQUENCY[samplingFrequencyIndex])
           duration = 1024 * ts.HZ // SAMPLING_FREQUENCY[samplingFrequencyIndex]
-          fmp4 += b''.join([
-            moof(0,
-              [
-                (2, duration, timestamp, 0, [(frameLength - (9 if protection else 7), duration, True, 0)])
-              ]
-            ),
-            mdat(bytes(ADTS_AAC[begin + (9 if protection else 7): begin + frameLength]))
-          ])
+          AAC_DATA = (timestamp, duration, frameLength - (9 if protection else 7), bytearray(ADTS_AAC[begin + (9 if protection else 7): begin + frameLength]))
+          if AAC_DATA[2] == len(AAC_DATA[3]):
+            fmp4 += b''.join([
+              moof(0,
+                [
+                  (2, AAC_DATA[1], AAC_DATA[0], 0, [(AAC_DATA[2], AAC_DATA[0], True, 0)])
+                ]
+              ),
+              mdat(AAC_DATA[3])
+            ])
+            AAC_DATA = None
           timestamp += duration
           begin += frameLength
 
