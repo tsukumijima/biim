@@ -215,6 +215,7 @@ def remux(segment, end):
         begin, ADTS_AAC = 0, AAC_PES.PES_packet_data()
         length = len(ADTS_AAC)
         while begin < length:
+          protection = (ADTS_AAC[begin + 2] & 0b00000001) == 0
           profile = ((ADTS_AAC[begin + 2] & 0b11000000) >> 6)
           samplingFrequencyIndex = ((ADTS_AAC[begin + 2] & 0b00111100) >> 2)
           channelConfiguration = ((ADTS_AAC[begin + 2] & 0b00000001) << 2) | ((ADTS_AAC[begin + 3] & 0b11000000) >> 6)
@@ -228,10 +229,10 @@ def remux(segment, end):
           fmp4 += b''.join([
             moof(0,
               [
-                (2, duration, timestamp, 0, [(frameLength - 7, duration, False, 0)])
+                (2, duration, timestamp, 0, [(frameLength - (9 if protection else 7), duration, True, 0)])
               ]
             ),
-            mdat(bytes(ADTS_AAC[begin + 7: begin + frameLength]))
+            mdat(bytes(ADTS_AAC[begin + (9 if protection else 7): begin + frameLength]))
           ])
           timestamp += duration
           begin += frameLength
@@ -281,7 +282,7 @@ def remux(segment, end):
   if CURR_H264:
     isKeyframe, samples, dts, cts = CURR_H264
     hasIDR = isKeyframe
-    duration = end - dts
+    duration = max(0, int(end - dts))
     content = bytearray()
     while samples:
       ebsp = samples.popleft()
@@ -398,8 +399,21 @@ async def main():
 
     ss = max(0, seq * args.target_duration)
     t = args.target_duration
-    options = [
-      '-ss', str(max(0, ss - 10)), '-i', str(args.input), '-ss', str(ss - max(0, ss - 10)), '-t', str(t),
+
+    """
+    cutter_options = [
+      '-i', str(args.input),
+      '-map', '0:v:0', '-map', '0:a:0',
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      '-fflags', 'nobuffer', '-flags', 'low_delay', '-max_delay', '0',
+      '-f', 'mpegts', '-'
+    ]
+    cutter = await asyncio.subprocess.create_subprocess_exec('ffmpeg', *cutter_options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+
+    encoder_options = [
+      '-f', 'mpegts',
+      '-ss', str(max(0, ss - 10)), '-i', '-', '-ss', str(ss - max(0, ss - 10)), '-t', str(t),
       '-map', '0:v', '-map', '0:a',
       '-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast',
       '-c:a', 'copy',
@@ -408,7 +422,22 @@ async def main():
       '-f', 'mpegts', '-'
     ]
 
+    encoder = await asyncio.subprocess.create_subprocess_exec('ffmpeg', *encoder_options, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    encoder.stdin.write(await cutter.stdout.read())
+    encoder.stdin.write_eof()
+    """
+
+    options = [
+      '-ss', str(max(0, ss - 10)), '-i', str(args.input), '-ss', str(ss - max(0, ss - 10)), '-t', str(t),
+      '-map', '0:v:0', '-map', '0:a:0',
+      '-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast',
+      '-c:a', 'copy',
+      '-fflags', 'nobuffer', '-flags', 'low_delay', '-max_delay', '0',
+      '-output_ts_offset', str(ss),
+      '-f', 'mpegts', '-'
+    ]
     encoder = await asyncio.subprocess.create_subprocess_exec('ffmpeg', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+
     output = memoryview(await encoder.stdout.read())
     init, fmp4 = remux(output, min(duration, ss + t) * ts.HZ)
 
