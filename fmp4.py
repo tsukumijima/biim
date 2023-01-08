@@ -45,6 +45,32 @@ SAMPLING_FREQUENCY = {
   0x0c: 7350,
 }
 
+class BlockingPipeReader:
+  def __init__(self, reader, size=ts.PACKET_SIZE * 16):
+    self.reader = reader
+    self.buffer = bytearray()
+    self.size = size
+
+  async def __fill(self):
+    data = await asyncio.to_thread(lambda: self.reader.read(self.size))
+    if data == b'': return False
+    self.buffer += data
+    return True
+
+  async def read(self, n):
+    while len(self.buffer) < n:
+      if not (await self.__fill()): break
+    result = self.buffer[:n]
+    self.buffer = self.buffer[n:]
+    return result
+
+  async def readexactly(self, n):
+    while len(self.buffer) < n:
+      if not (await self.__fill()): raise asyncio.IncompleteReadError(self.buffer, None)
+    result = self.buffer[:n]
+    self.buffer = self.buffer[n:]
+    return result
+
 async def main():
   loop = asyncio.get_running_loop()
   parser = argparse.ArgumentParser(description=('biim: LL-HLS origin'))
@@ -182,9 +208,12 @@ async def main():
   INITIALIZATION_SEGMENT_DISPATCHED = False
   PARTIAL_BEGIN_TIMESTAMP = None
 
-  reader = asyncio.StreamReader()
-  protocol = asyncio.StreamReaderProtocol(reader)
-  await loop.connect_read_pipe(lambda: protocol, args.input)
+  if args.input is not sys.stdin.buffer or os.name == 'nt':
+    reader = BlockingPipeReader(args.input)
+  else:
+    reader = asyncio.StreamReader()
+    protocol = asyncio.StreamReaderProtocol(reader)
+    await loop.connect_read_pipe(lambda: protocol, args.input)
 
   while True:
     isEOF = False
