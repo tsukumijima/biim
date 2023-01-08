@@ -8,9 +8,7 @@ import sys
 import os
 
 from collections import deque
-
 from pathlib import Path
-from datetime import datetime, timedelta
 
 from mpeg2ts import ts
 from mpeg2ts.packetize import packetize_section, packetize_pes
@@ -21,8 +19,6 @@ from mpeg2ts.pes import PES
 from mpeg2ts.h264 import H264PES
 from mpeg2ts.h265 import H265PES
 from mpeg2ts.parser import SectionParser, PESParser
-
-from hls.m3u8 import M3U8
 
 from mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat, emsg
 from mp4.avc import avcTrack
@@ -132,8 +128,11 @@ async def main():
     wait_read = False
     ss = max(0, seq * args.target_duration)
 
-    options = [
-      '-ss', str(max(0, ss - 10)), '-i', str(args.input), '-ss', str(ss - max(0, ss - 10)),
+    cmd = [
+      'python3', 'seekable.py',
+      '-i', str(args.input), '-s', str(ss),
+      '|',
+      'ffmpeg', '-f', 'mpegts', '-i', '-',
       '-map', '0:v:0', '-map', '0:a:0',
       '-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast',
       '-c:a', 'copy',
@@ -141,7 +140,7 @@ async def main():
       '-output_ts_offset', str(ss),
       '-f', 'mpegts', '-'
     ]
-    encoder = await asyncio.subprocess.create_subprocess_exec('ffmpeg', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    encoder = await asyncio.subprocess.create_subprocess_shell(' '.join(cmd), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
 
     processing[seq] = True
     fmp4 = bytearray()
@@ -186,6 +185,7 @@ async def main():
           seq = process_queue.get_nowait()
           wait_read = False
           processing[old_seq] = False
+          encoder.kill()
           return
         except asyncio.QueueEmpty:
           pass
@@ -194,6 +194,7 @@ async def main():
         try:
           packet = await encoder.stdout.readexactly(188)
         except:
+          wait_read = True
           return
 
         endDTS = min(total, (seq + 1) * args.target_duration) * ts.HZ
@@ -267,6 +268,7 @@ async def main():
                 seq += 1
                 processing[seq] = True
               else:
+                wait_read = True
                 break
 
         elif PID == H265_PID:
@@ -339,6 +341,7 @@ async def main():
                 seq += 1
                 processing[seq] = True
               else:
+                wait_read = True
                 break
 
         elif PID == AAC_PID:
