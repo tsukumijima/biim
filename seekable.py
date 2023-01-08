@@ -197,8 +197,6 @@ if __name__ == '__main__':
               PMT_PID = program_map_PID
             elif not PMT_PID and not args.SID:
               PMT_PID = program_map_PID
-            elif stream_type == 0x24:
-              H265_PID = elementary_PID
 
       elif PID == PMT_PID:
         PMT_Parser.push(packet)
@@ -212,6 +210,8 @@ if __name__ == '__main__':
               MPEG2_PID = elementary_PID
             elif stream_type == 0x1b:
               H264_PID = elementary_PID
+            elif stream_type == 0x24:
+              H265_PID = elementary_PID
 
       elif PID == MPEG2_PID:
         if ts.payload_unit_start_indicator(packet):
