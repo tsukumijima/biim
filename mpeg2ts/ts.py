@@ -37,6 +37,9 @@ def adaptation_field_length(packet):
 def pointer_field(packet):
   return packet[HEADER_SIZE + (1 + adaptation_field_length(packet) if has_adaptation_field(packet) else 0)]
 
+def payload(packet):
+  return packet[HEADER_SIZE + (1 + adaptation_field_length(packet) if has_adaptation_field(packet) else 0):]
+
 def has_pcr(packet):
   return has_adaptation_field(packet) and adaptation_field_length(packet) > 0 and (packet[HEADER_SIZE + 1] & 0x10) != 0
 
