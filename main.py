@@ -6,6 +6,7 @@ from aiohttp import web
 import argparse
 import sys
 import os
+import time
 
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -141,6 +142,10 @@ async def main():
   PAT_Parser = SectionParser(PATSection)
   PMT_Parser = SectionParser(PMTSection)
   H264_PES_Parser = PESParser(PES)
+
+  LATEST_VIDEO_TIMESTAMP = None
+  LATEST_VIDEO_MONOTONIC_TIME = None
+  LATEST_VIDEO_SLEEP_DIFFERENCE = 0
 
   PMT_PID = None
   PCR_PID = None
@@ -285,6 +290,17 @@ async def main():
           packets = packetize_pes(H264, False, False, H264_PID, 0, H264_CC)
           H264_CC = (H264_CC + len(packets)) & 0x0F
           for p in packets: m3u8.push(p)
+
+        if LATEST_VIDEO_TIMESTAMP is not None:
+          TIMESTAMP_DIFF = ((timestamp - LATEST_VIDEO_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
+          TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
+          if args.input is not sys.stdin.buffer:
+            SLEEP_BEGIN = time.monotonic()
+            await asyncio.sleep(max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE)))
+            SLEEP_END = time.monotonic()
+            LATEST_VIDEO_SLEEP_DIFFERENCE = (SLEEP_END - SLEEP_BEGIN) - max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE))
+        LATEST_VIDEO_TIMESTAMP = timestamp
+        LATEST_VIDEO_MONOTONIC_TIME = time.monotonic()
 
     else:
       m3u8.push(packet)

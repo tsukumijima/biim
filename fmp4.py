@@ -6,6 +6,7 @@ from aiohttp import web
 import argparse
 import sys
 import os
+import time
 
 from collections import deque
 
@@ -183,6 +184,10 @@ async def main():
   LATEST_PCR_VALUE = None
   LATEST_PCR_TIMESTAMP_90KHZ = 0
 
+  LATEST_VIDEO_TIMESTAMP_90KHZ = None
+  LATEST_VIDEO_MONOTONIC_TIME = None
+  LATEST_VIDEO_SLEEP_DIFFERENCE = 0
+
   PMT_PID = None
   AAC_PID = None
   H264_PID = None
@@ -316,6 +321,17 @@ async def main():
         while (H264_FRAGMENTS): m3u8.push(H264_FRAGMENTS.popleft())
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
 
+        if LATEST_VIDEO_TIMESTAMP_90KHZ is not None:
+          TIMESTAMP_DIFF = (timestamp - LATEST_VIDEO_TIMESTAMP_90KHZ) / ts.HZ
+          TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
+          if args.input is not sys.stdin.buffer:
+            SLEEP_BEGIN = time.monotonic()
+            await asyncio.sleep(max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE)))
+            SLEEP_END = time.monotonic()
+            LATEST_VIDEO_SLEEP_DIFFERENCE = (SLEEP_END - SLEEP_BEGIN) - max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE))
+        LATEST_VIDEO_TIMESTAMP_90KHZ = timestamp
+        LATEST_VIDEO_MONOTONIC_TIME = time.monotonic()
+
     elif PID == H265_PID:
       H265_PES_Parser.push(packet)
       for H265 in H265_PES_Parser:
@@ -399,6 +415,17 @@ async def main():
         while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
         while (H265_FRAGMENTS): m3u8.push(H265_FRAGMENTS.popleft())
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
+
+        if LATEST_VIDEO_TIMESTAMP_90KHZ is not None:
+          TIMESTAMP_DIFF = (timestamp - LATEST_VIDEO_TIMESTAMP_90KHZ) / ts.HZ
+          TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
+          if args.input is not sys.stdin.buffer:
+            SLEEP_BEGIN = time.monotonic()
+            await asyncio.sleep(max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE)))
+            SLEEP_END = time.monotonic()
+            LATEST_VIDEO_SLEEP_DIFFERENCE = (SLEEP_END - SLEEP_BEGIN) - max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE))
+        LATEST_VIDEO_TIMESTAMP_90KHZ = timestamp
+        LATEST_VIDEO_MONOTONIC_TIME = time.monotonic()
 
     elif PID == AAC_PID:
       AAC_PES_Parser.push(packet)
