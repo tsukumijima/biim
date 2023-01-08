@@ -42,6 +42,7 @@ if __name__ == '__main__':
   H265_PID = None
 
   BYTERATE = 0
+  TIMES = 30
   LATEST_PCR_VALUE = None
   LATEST_PCR_BYTES = None
 
@@ -88,6 +89,8 @@ if __name__ == '__main__':
         if LATEST_PCR_VALUE is None:
           LATEST_PCR_VALUE = ts.pcr(packet)
           LATEST_PCR_BYTES = 0
+        elif TIMES > 0:
+          TIMES -= 1
         else:
           BYTERATE = (LATEST_PCR_BYTES + ts.PACKET_SIZE) * ts.HZ / ((ts.pcr(packet) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE)
           break
