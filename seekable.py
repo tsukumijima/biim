@@ -84,6 +84,13 @@ if __name__ == '__main__':
           LAST_PMT = PMT
 
           PCR_PID = PMT.PCR_PID
+          for stream_type, elementary_PID in PMT:
+            if stream_type == 0x02:
+              MPEG2_PID = elementary_PID
+            elif stream_type == 0x1b:
+              H264_PID = elementary_PID
+            elif stream_type == 0x24:
+              H265_PID = elementary_PID
 
       if PID == PCR_PID and ts.has_pcr(packet):
         if LATEST_PCR_VALUE is None:
@@ -135,7 +142,7 @@ if __name__ == '__main__':
 
           PCR_PID = PMT.PCR_PID
           for stream_type, elementary_PID in PMT:
-            if stream_type == 0x1b:
+            if stream_type == 0x02:
               MPEG2_PID = elementary_PID
             elif stream_type == 0x1b:
               H264_PID = elementary_PID
@@ -190,6 +197,8 @@ if __name__ == '__main__':
               PMT_PID = program_map_PID
             elif not PMT_PID and not args.SID:
               PMT_PID = program_map_PID
+            elif stream_type == 0x24:
+              H265_PID = elementary_PID
 
       elif PID == PMT_PID:
         PMT_Parser.push(packet)
@@ -199,7 +208,7 @@ if __name__ == '__main__':
 
           PCR_PID = PMT.PCR_PID
           for stream_type, elementary_PID in PMT:
-            if stream_type == 0x1b:
+            if stream_type == 0x02:
               MPEG2_PID = elementary_PID
             elif stream_type == 0x1b:
               H264_PID = elementary_PID
@@ -215,6 +224,13 @@ if __name__ == '__main__':
         if ts.payload_unit_start_indicator(packet):
           H264 = PES(ts.payload(packet))
           timestamp = H264.dts() if H264.has_dts() else H264.pts()
+          DIFF = ((timestamp - FIRST_DTS + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
+          if args.start <= DIFF: OUTPUT = True
+
+      elif PID == H265_PID:
+        if ts.payload_unit_start_indicator(packet):
+          H265 = PES(ts.payload(packet))
+          timestamp = H265.dts() if H265.has_dts() else H265.pts()
           DIFF = ((timestamp - FIRST_DTS + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
           if args.start <= DIFF: OUTPUT = True
 
