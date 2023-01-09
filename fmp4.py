@@ -68,6 +68,7 @@ async def main():
     nonlocal m3u8
     msn = request.query['_HLS_msn'] if '_HLS_msn' in request.query else None
     part = request.query['_HLS_part'] if '_HLS_part' in request.query else None
+    skip = request.query['_HLS_skip'] == 'YES' if '_HLS_skip' in request.query else None
 
     if msn is None and part is None:
       future = m3u8.plain()
@@ -80,7 +81,7 @@ async def main():
       msn = int(msn)
       if part is None: part = 0
       part = int(part)
-      future = m3u8.blocking(msn, part)
+      future = m3u8.blocking(msn, part, skip)
       if future is None:
         return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="application/x-mpegURL")
 

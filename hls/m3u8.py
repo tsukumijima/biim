@@ -32,24 +32,22 @@ class M3U8:
       self.futures.append(f)
     return f
 
-  def blocking(self, msn, part):
+  def blocking(self, msn, part, skip=False):
     if not self.in_range(msn): return None
 
-    f = asyncio.Future()
     index = msn - self.media_sequence
 
+    f = None
     if part is None:
+      f = self.segments[index].m3u8(skip)
       if self.segments[index].isCompleted():
-        f.set_result(self.manifest())
-      else:
-        self.segments[index].m3u8s.append(f)
+        f.set_result(self.manifest(skip))
     else:
       if part > len(self.segments[index].partials): return None
 
+      f = self.segments[index].partials[part].m3u8(skip)
       if self.segments[index].partials[part].isCompleted():
-        f.set_result(self.manifest())
-      else:
-        self.segments[index].partials[part].m3u8s.append(f)
+        f.set_result(self.manifest(skip))
     return f
 
   def push(self, packet):
@@ -73,12 +71,7 @@ class M3U8:
 
     if not self.segments: return
     self.segments[-1].complete(endPTS)
-    for m in self.segments[-1].partials[-1].m3u8s:
-      if not m.done(): m.set_result(self.manifest())
-    self.segments[-1].partials[-1].m3u8s = []
-    for m in self.segments[-1].m3u8s:
-      if not m.done(): m.set_result(self.manifest())
-    self.segments[-1].m3u8s = []
+    self.segments[-1].notify(self.manifest(True), self.manifest(False))
     for f in self.futures:
       if not f.done(): f.set_result(self.manifest())
     self.futures = []
@@ -86,9 +79,7 @@ class M3U8:
   def completePartial(self, endPTS):
     if not self.segments: return
     self.segments[-1].completePartial(endPTS)
-    for m in self.segments[-1].partials[-1].m3u8s:
-      if not m.done(): m.set_result(self.manifest())
-    self.segments[-1].partials[-1].m3u8s
+    self.segments[-1].notify(self.manifest(True), self.manifest(False))
 
   def continuousSegment(self, endPTS, isIFrame = False, programDateTime = None):
     lastSegment = self.segments[-1] if self.segments else None
@@ -97,12 +88,7 @@ class M3U8:
     if not lastSegment: return
     self.published = True
     lastSegment.complete(endPTS)
-    for m in lastSegment.partials[-1].m3u8s:
-      if not m.done(): m.set_result(self.manifest())
-    lastSegment.partials[-1].m3u8s = []
-    for m in lastSegment.m3u8s:
-      if not m.done(): m.set_result(self.manifest())
-    lastSegment.m3u8s = []
+    lastSegment.notify(self.manifest(True), self.manifest(False))
     for f in self.futures:
       if not f.done(): f.set_result(self.manifest())
     self.futures = []
@@ -114,9 +100,7 @@ class M3U8:
 
     if not lastPartial: return
     lastPartial.complete(endPTS)
-    for m in lastPartial.m3u8s:
-      if not m.done(): m.set_result(self.manifest())
-    lastPartial.m3u8s = []
+    lastPartial.notify(self.manifest(True), self.manifest(False))
 
   async def segment(self, msn):
     if not self.in_range(msn):
@@ -142,28 +126,48 @@ class M3U8:
       if segment.isCompleted(): target_duration = max(target_duration, math.ceil(segment.extinf().total_seconds()))
     return target_duration
 
-  def manifest(self):
+  def manifest(self, skip=False):
     m3u8 = ''
     m3u8 += f'#EXTM3U\n'
-    m3u8 += f'#EXT-X-VERSION:6\n'
+    m3u8 += f'#EXT-X-VERSION:{9 if self.list_size is None else 6}\n'
     m3u8 += f'#EXT-X-TARGETDURATION:{self.estimated_tartget_duration()}\n'
     m3u8 += f'#EXT-X-PART-INF:PART-TARGET={self.part_target:.06f}\n'
-    m3u8 += f'#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={(self.part_target * 3.001):.06f}\n'
+    if self.list_size is None:
+      m3u8 += f'#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={(self.part_target * 3.001):.06f},CAN-SKIP-UNTIL={self.estimated_tartget_duration() * 6}\n'
+      m3u8 += f'#EXT-X-PLAYLIST-TYPE:EVENT\n'
+    else:
+      m3u8 += f'#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={(self.part_target * 3.001):.06f}\n'
     m3u8 += f'#EXT-X-MEDIA-SEQUENCE:{self.media_sequence}\n'
 
     if self.hasInit:
       m3u8 += f'#EXT-X-MAP:URI="init"\n'
 
+    skip_end_index = 0
+    if skip:
+      elapsed = 0
+      for seg_index, segment in enumerate(reversed(self.segments)):
+        seg_index = (len(self.segments) - 1) - seg_index
+        if not segment.isCompleted(): continue
+        elapsed += segment.extinf().total_seconds()
+        if elapsed >= self.estimated_tartget_duration() * 6:
+          skip_end_index = seg_index
+          break
+    if skip_end_index > 0:
+      m3u8 += f'\n'
+      m3u8 += f'#EXT-X-SKIP:SKIPPED-SEGMENTS={skip_end_index}\n'
+
     for seg_index, segment in enumerate(self.segments):
+      if seg_index < skip_end_index: continue # SKIP
       msn = self.media_sequence + seg_index
       m3u8 += f'\n'
       m3u8 += f'#EXT-X-PROGRAM-DATE-TIME:{segment.program_date_time.isoformat()}\n'
-      for part_index, partial in enumerate(segment):
-        hasIFrame = ',INDEPENDENT=YES' if partial.hasIFrame else ''
-        if not partial.isCompleted():
-          m3u8 += f'#EXT-X-PRELOAD-HINT:TYPE=PART,URI="part?msn={msn}&part={part_index}"{hasIFrame}\n'
-        else:
-          m3u8 += f'#EXT-X-PART:DURATION={partial.extinf().total_seconds():.06f},URI="part?msn={msn}&part={part_index}"{hasIFrame}\n'
+      if seg_index >= len(self.segments) - 4:
+        for part_index, partial in enumerate(segment):
+          hasIFrame = ',INDEPENDENT=YES' if partial.hasIFrame else ''
+          if not partial.isCompleted():
+            m3u8 += f'#EXT-X-PRELOAD-HINT:TYPE=PART,URI="part?msn={msn}&part={part_index}"{hasIFrame}\n'
+          else:
+            m3u8 += f'#EXT-X-PART:DURATION={partial.extinf().total_seconds():.06f},URI="part?msn={msn}&part={part_index}"{hasIFrame}\n'
 
       if segment.isCompleted():
         m3u8 += f'#EXTINF:{segment.extinf().total_seconds():.06f}\n'

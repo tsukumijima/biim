@@ -14,7 +14,8 @@ class PartialSegment:
     self.hasIFrame = isIFrame
     self.buffer = bytearray()
     self.queues = []
-    self.m3u8s = []
+    self.m3u8s_with_skip = []
+    self.m3u8s_without_skip = []
 
   def push(self, packet):
     self.buffer += packet
@@ -30,16 +31,25 @@ class PartialSegment:
       self.queues.append(queue)
     return queue
 
-  def m3u8(self):
+  def m3u8(self, skip = False):
     f = asyncio.Future()
     if not self.isCompleted():
-      self.m3u8s.append(f)
+      if skip: self.m3u8s_with_skip.append(f)
+      else: self.m3u8s_without_skip.append(f)
     return f
 
   def complete(self, endPTS):
     self.endPTS = endPTS
     for q in self.queues: q.put_nowait(None)
     self.queues = []
+
+  def notify(self, skipped_manifest, all_manifest):
+    for f in self.m3u8s_with_skip:
+      if not f.done(): f.set_result(skipped_manifest)
+    self.m3u8s_with_skip = []
+    for f in self.m3u8s_without_skip:
+      if not f.done(): f.set_result(all_manifest)
+    self.m3u8s_without_skip = []
 
   def isCompleted(self):
     return self.endPTS is not None
@@ -74,10 +84,18 @@ class Segment(PartialSegment):
     if not self.partials: return
     self.partials[-1].complete(endPTS)
 
+  def notifyPartial(self, skipped_manifest, all_manifest):
+    if not self.partials: return
+    self.partials[-1].notify(skipped_manifest, all_manifest)
+
   def newPartial(self, beginPTS, isIFrame = False):
     self.partials.append(PartialSegment(beginPTS, isIFrame))
 
   def complete(self, endPTS):
     super().complete(endPTS)
     self.completePartial(endPTS)
+
+  def notify(self, skipped_manifest, all_manifest):
+    super().notify(skipped_manifest, all_manifest)
+    self.notifyPartial(skipped_manifest, all_manifest)
 
