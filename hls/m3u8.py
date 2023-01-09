@@ -136,11 +136,17 @@ class M3U8:
     if part > len(self.segments[index].partials): return None
     return await self.segments[index].partials[part].response()
 
+  def estimated_tartget_duration(self):
+    target_duration = self.target_duration
+    for segment in self.segments:
+      if segment.isCompleted(): target_duration = max(target_duration, math.ceil(segment.extinf().total_seconds()))
+    return target_duration
+
   def manifest(self):
     m3u8 = ''
     m3u8 += f'#EXTM3U\n'
     m3u8 += f'#EXT-X-VERSION:6\n'
-    m3u8 += f'#EXT-X-TARGETDURATION:{self.target_duration}\n'
+    m3u8 += f'#EXT-X-TARGETDURATION:{self.estimated_tartget_duration()}\n'
     m3u8 += f'#EXT-X-PART-INF:PART-TARGET={self.part_target:.06f}\n'
     m3u8 += f'#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={(self.part_target * 3.001):.06f}\n'
     m3u8 += f'#EXT-X-MEDIA-SEQUENCE:{self.media_sequence}\n'
