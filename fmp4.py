@@ -30,6 +30,8 @@ from mp4.avc import avcTrack
 from mp4.hevc import hevcTrack
 from mp4.mp4a import mp4aTrack
 
+from util.reader import BufferingAsyncReader
+
 SAMPLING_FREQUENCY = {
   0x00: 96000,
   0x01: 88200,
@@ -45,32 +47,6 @@ SAMPLING_FREQUENCY = {
   0x0b: 8000,
   0x0c: 7350,
 }
-
-class BlockingPipeReader:
-  def __init__(self, reader, size=ts.PACKET_SIZE * 16):
-    self.reader = reader
-    self.buffer = bytearray()
-    self.size = size
-
-  async def __fill(self):
-    data = await asyncio.to_thread(lambda: self.reader.read(self.size))
-    if data == b'': return False
-    self.buffer += data
-    return True
-
-  async def read(self, n):
-    while len(self.buffer) < n:
-      if not (await self.__fill()): break
-    result = self.buffer[:n]
-    self.buffer = self.buffer[n:]
-    return result
-
-  async def readexactly(self, n):
-    while len(self.buffer) < n:
-      if not (await self.__fill()): raise asyncio.IncompleteReadError(self.buffer, None)
-    result = self.buffer[:n]
-    self.buffer = self.buffer[n:]
-    return result
 
 async def main():
   loop = asyncio.get_running_loop()
@@ -215,7 +191,7 @@ async def main():
   PARTIAL_BEGIN_TIMESTAMP = None
 
   if args.input is not sys.stdin.buffer or os.name == 'nt':
-    reader = BlockingPipeReader(args.input)
+    reader = BufferingAsyncReader(args.input, ts.PACKET_SIZE * 16)
   else:
     reader = asyncio.StreamReader()
     protocol = asyncio.StreamReaderProtocol(reader)

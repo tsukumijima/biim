@@ -1,5 +1,5 @@
-from mp4.bitstream import BitStream
 from mp4.box import trak, tkhd, mdia, mdhd, hdlr, minf, vmhd, dinf, stbl, stsd, hvc1
+from util.bitstream import BitStream
 
 escapes = set([0x00, 0x01, 0x02, 0x03])
 

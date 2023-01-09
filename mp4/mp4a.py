@@ -1,4 +1,3 @@
-from mp4.bitstream import BitStream
 from mp4.box import trak, tkhd, mdia, mdhd, hdlr, minf, smhd, dinf, stbl, stsd, mp4a
 
 def mp4aTrack(trackId, timescale, config, channelCount, sampleRate):

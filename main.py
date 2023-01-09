@@ -21,31 +21,7 @@ from mpeg2ts.parser import SectionParser, PESParser
 
 from hls.m3u8 import M3U8
 
-class BlockingPipeReader:
-  def __init__(self, reader, size=ts.PACKET_SIZE * 16):
-    self.reader = reader
-    self.buffer = bytearray()
-    self.size = size
-
-  async def __fill(self):
-    data = await asyncio.to_thread(lambda: self.reader.read(self.size))
-    if data == b'': return False
-    self.buffer += data
-    return True
-
-  async def read(self, n):
-    while len(self.buffer) < n:
-      if not (await self.__fill()): break
-    result = self.buffer[:n]
-    self.buffer = self.buffer[n:]
-    return result
-
-  async def readexactly(self, n):
-    while len(self.buffer) < n:
-      if not (await self.__fill()): raise asyncio.IncompleteReadError(self.buffer, None)
-    result = self.buffer[:n]
-    self.buffer = self.buffer[n:]
-    return result
+from util.reader import BufferingAsyncReader
 
 async def main():
   loop = asyncio.get_running_loop()
@@ -175,7 +151,7 @@ async def main():
       for p in packets: m3u8.push(p)
 
   if args.input is not sys.stdin.buffer or os.name == 'nt':
-    reader = BlockingPipeReader(args.input)
+    reader = BufferingAsyncReader(args.input, ts.PACKET_SIZE * 16)
   else:
     reader = asyncio.StreamReader()
     protocol = asyncio.StreamReaderProtocol(reader)
