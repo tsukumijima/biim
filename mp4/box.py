@@ -11,14 +11,14 @@ composition_matrix = bytes([
   0x40, 0x00, 0x00, 0x00,
 ])
 
-def box(fourcc, data = b''):
+def box(fourcc: str, data: list[bytes | bytearray | memoryview] | bytes | bytearray | memoryview = b'') -> bytes:
   total = sum(map(len, data)) if type(data) is list else len(data)
   return (8 + total).to_bytes(4, byteorder='big') + fourcc.encode('ascii') + (b''.join(data) if type(data) is list else data)
 
-def fullbox(fourcc, version, flags, data = b''):
+def fullbox(fourcc: str, version: int, flags: int, data: list[bytes | bytearray | memoryview] | bytes | bytearray | memoryview = b'') -> bytes:
   return box(fourcc, [version.to_bytes(1, byteorder='big'), flags.to_bytes(3, byteorder='big'), (b''.join(data) if type(data) is list else data)])
 
-def ftyp():
+def ftyp() -> bytes:
   return box('ftyp', [
     'isom'.encode('ascii'), # major_brand: isom
     (1).to_bytes(4, byteorder='big'), # minor_version: 0x01
@@ -26,14 +26,14 @@ def ftyp():
     'avc1'.encode('ascii')
   ])
 
-def moov(mvhd, mvex, trak):
+def moov(mvhd: bytes, mvex: bytes, trak: bytes) -> bytes:
   return box('moov', [
     mvhd,
     mvex,
     b''.join(trak) if type(trak) is list else trak
   ])
 
-def mvhd(timescale):
+def mvhd(timescale: int) -> bytes:
   return fullbox('mvhd', 0, 0, [
     (0).to_bytes(4, byteorder='big'), # creation_time
     (0).to_bytes(4, byteorder='big'), # modification_time
@@ -47,10 +47,10 @@ def mvhd(timescale):
     b'\xFF\xFF\xFF\xFF' # next_track_ID
   ])
 
-def trak(tkhd, mdia):
+def trak(tkhd: bytes, mdia: bytes) -> bytes:
   return box('trak', tkhd + mdia)
 
-def tkhd(trackId, width, height):
+def tkhd(trackId: int, width: int, height: int) -> bytes:
   return fullbox('tkhd', 0, 0, [
     (0).to_bytes(4, byteorder='big'), # creation_time
     (0).to_bytes(4, byteorder='big'), # modification_time
@@ -64,10 +64,10 @@ def tkhd(trackId, width, height):
     (height).to_bytes(2, byteorder='big') + b'\x00\x00', # height
   ])
 
-def mdia(mdhd, hdlr, minf):
+def mdia(mdhd: bytes, hdlr: bytes, minf: bytes) -> bytes:
   return box('mdia', [mdhd, hdlr, minf])
 
-def mdhd(timescale):
+def mdhd(timescale: int) -> bytes:
   return fullbox('mdhd', 0, 0, [
     (0).to_bytes(4, byteorder='big'), # creation_time
     (0).to_bytes(4, byteorder='big'), # modification_time
@@ -76,7 +76,7 @@ def mdhd(timescale):
     b'\x55\xC4' + (0).to_bytes(2, byteorder='big'), # language: und (undetermined), pre_defined = 0
   ])
 
-def hdlr(handler_type, handler_name):
+def hdlr(handler_type: str, handler_name: str) -> bytes:
   return fullbox('hdlr', 0, 0, [
     (0).to_bytes(4, byteorder='big'), # pre_defined
     handler_type.encode('ascii'), # handler_type
@@ -84,33 +84,33 @@ def hdlr(handler_type, handler_name):
     handler_name.encode('ascii') + b'\x00'  # handler_name
   ])
 
-def minf(xmhd, dinf, stbl):
+def minf(xmhd: bytes, dinf: bytes, stbl: bytes) -> bytes:
   return box('minf', [
     xmhd or nmhd(),
     dinf,
     stbl
   ])
 
-def nmhd():
+def nmhd() -> bytes:
   return fullbox('nmhd', 0, 0)
 
-def vmhd():
+def vmhd() -> bytes:
   return fullbox('vmhd', 0, 1, [
     (0).to_bytes(2, byteorder='big'), # graphicsmode: 2 bytes
     (0).to_bytes(6, byteorder='big'), # opcolor: 3 * 2 bytes
   ])
 
-def smhd():
+def smhd() -> bytes:
   return fullbox('smhd', 0, 1, [
     (0).to_bytes(2, byteorder='big'), (0).to_bytes(2, byteorder='big'), # balance(2) + reserved(2)
   ])
 
-def dinf():
+def dinf() -> bytes:
   return box('dinf',
     fullbox('dref', 0, 0, [(1).to_bytes(4, byteorder='big'), fullbox('url ', 0, 1)])
   )
 
-def stbl(stsd):
+def stbl(stsd: bytes) -> bytes:
   return box('stbl', [
     stsd,
     fullbox('stts', 0, 0, (0).to_bytes(4, byteorder='big')),
@@ -119,13 +119,13 @@ def stbl(stsd):
     fullbox('stco', 0, 0, (0).to_bytes(4, byteorder='big')),
   ])
 
-def stsd(codec):
+def stsd(codec: bytes) -> bytes:
   return fullbox('stsd', 0, 1, [
     (1).to_bytes(4, byteorder='big'),
     codec
   ])
 
-def mp4a(config, channelCount, sampleRate):
+def mp4a(config: bytes | bytearray | memoryview, channelCount: int, sampleRate: int) -> bytes:
   return box('mp4a', [
     (0).to_bytes(4, byteorder='big'), # reserved(4)
     (0).to_bytes(2, byteorder='big'), (1).to_bytes(2, byteorder='big'), # reserved(2) + data_reference_index(2)
@@ -136,7 +136,7 @@ def mp4a(config, channelCount, sampleRate):
     esds(config, bytes([ 0x06, 0x01, 0x02 ])), # with GASpecificConfig
   ])
 
-def esds(config, descriptor = b''):
+def esds(config: bytes | bytearray | memoryview, descriptor: bytes = b'') -> bytes:
   return fullbox('esds', 0, 0, [
     (0x03).to_bytes(1, byteorder='big'), # descriptor_type
     (0x17 + len(config)).to_bytes(1, byteorder='big'), # length
@@ -155,7 +155,7 @@ def esds(config, descriptor = b''):
     descriptor,
   ])
 
-def avc1(config, width, height):
+def avc1(config: bytes | bytearray | memoryview, width: int, height: int) -> bytes:
   return box('avc1', [
     (0).to_bytes(4, byteorder='big'), # rereserved(4)
     (0).to_bytes(2, byteorder='big'), (1).to_bytes(2, byteorder='big'), # reserved(2) + data_reference_index(2)
@@ -171,7 +171,7 @@ def avc1(config, width, height):
     box('avcC', config)
   ])
 
-def hvc1(config, width, height):
+def hvc1(config: bytes | bytearray | memoryview, width: int, height: int) -> bytes:
   return box('hvc1', [
     (0).to_bytes(4, byteorder='big'), # rereserved(4)
     (0).to_bytes(2, byteorder='big'), (1).to_bytes(2, byteorder='big'), # reserved(2) + data_reference_index(2)
@@ -187,20 +187,20 @@ def hvc1(config, width, height):
     box('hvcC', config)
   ])
 
-def wvtt():
+def wvtt() -> bytes:
   return box('wvtt', [
     (0).to_bytes(6, byteorder='big') + # ???
     (1).to_bytes(2, byteorder='big') + # dataReferenceIndex
     vttC()
   ])
 
-def vttC():
+def vttC() -> bytes:
   return box('vttC', 'WEBVTT\n'.encode('ascii'))
 
-def mvex(trex):
+def mvex(trex: bytes) -> bytes:
   return box('mvex', b''.join(trex) if type(trex) is list else trex)
 
-def trex(trackId):
+def trex(trackId: int) -> bytes:
   return fullbox('trex', 0, 0, [
     trackId.to_bytes(4, byteorder='big'), # trackId
     (1).to_bytes(4, byteorder='big'), # default_sample_description_index
@@ -209,7 +209,7 @@ def trex(trackId):
     b'\x00\x01\x00\x01' # default_sample_flags
   ])
 
-def moof(sequence_number, fragments):
+def moof(sequence_number: int, fragments: list[int, int, int, int, tuple[int, int, bool, int]]) -> bytes:
   moofSize = len(
     box('moof', [
       mfhd(sequence_number),
@@ -221,29 +221,29 @@ def moof(sequence_number, fragments):
     b''.join([traf(trackId, duration, baseMediaDecodeTime, moofSize + 8 + offset, samples) for trackId, duration, baseMediaDecodeTime, offset, samples in fragments])
   ])
 
-def mfhd(sequence_number): # 20 bytes
+def mfhd(sequence_number: int) -> bytes:
   return fullbox('mfhd', 0, 0, [
     (0).to_bytes(4, byteorder='big'),
     (sequence_number).to_bytes(4, byteorder='big')
   ])
 
-def traf(trackId, duration, baseMediaDecodeTime, offset, samples):
+def traf(trackId: int, duration: int, baseMediaDecodeTime: int, offset: int, samples: tuple[int, int, bool, int]) -> bytes:
   return box('traf', [
     tfhd(trackId, duration),
     tfdt(baseMediaDecodeTime),
     trun(offset, samples),
   ])
 
-def tfhd(trackId, duraiton):
+def tfhd(trackId: int, duraiton: int) -> bytes:
   return fullbox('tfhd', 0, 8, [
     (trackId).to_bytes(4, byteorder='big'),
     (duraiton).to_bytes(4, byteorder='big')
   ])
 
-def tfdt(baseMediaDecodeTime):
+def tfdt(baseMediaDecodeTime: int) -> bytes:
   return fullbox('tfdt', 1, 0, baseMediaDecodeTime.to_bytes(8, byteorder='big'))
 
-def trun(offset, samples):
+def trun(offset: int, samples: tuple[int, int, bool, int]) -> bytes:
   return fullbox('trun', 0, 0x000F01, [
     (len(samples)).to_bytes(4, byteorder='big'),
     (offset).to_bytes(4, byteorder='big'),
@@ -259,10 +259,10 @@ def trun(offset, samples):
     ])
   ])
 
-def mdat(data):
+def mdat(data: bytes | bytearray | memoryview) -> bytes:
   return box('mdat', data)
 
-def emsg(timescale, presentationTime, duration, schemeIdUri, content):
+def emsg(timescale: int, presentationTime: int, duration: int, schemeIdUri: str, content: bytes | bytearray | memoryview) -> bytes:
   return fullbox('emsg', 1, 0, [
     (timescale).to_bytes(4, byteorder='big'),
     (presentationTime).to_bytes(8, byteorder='big'),

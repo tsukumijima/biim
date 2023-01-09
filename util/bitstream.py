@@ -3,16 +3,16 @@ from collections import deque
 class BitStream:
 
   def __init__(self, data):
-    self.bits = deque()
-    self.data = deque(data)
+    self.bits: deque[int] = deque()
+    self.data: deque[int] = deque(data)
 
-  def __bool__(self):
+  def __bool__(self) -> bool:
     return bool(self.bits or self.data)
 
-  def __len__(self):
+  def __len__(self) -> int:
     return len(self.data) * 8 + len(self.bits)
 
-  def __fill_bits(self):
+  def __fill_bits(self) -> None:
     if not self.data:
       return
     byte = self.data.popleft()
@@ -20,19 +20,19 @@ class BitStream:
       bit_index = (8 - 1) - index
       self.bits.append(1 if (byte & (1 << bit_index)) != 0 else 0)
 
-  def __peekBit(self):
+  def __peekBit(self) -> int:
     if not self.bits:
       self.__fill_bits()
     return self.bits[0]
 
-  def __count_trailing_zeros(self):
+  def __count_trailing_zeros(self) -> int:
     result = 0
     while self.__peekBit() == 0:
       self.readBits(1)
       result += 1
     return result
 
-  def readBits(self, size):
+  def readBits(self, size: int) -> int:
     result = 0
     remain_bits_len = min(len(self.bits), size)
     for _ in range(remain_bits_len):
@@ -56,28 +56,28 @@ class BitStream:
       size -= 1
     return result
 
-  def readBool(self):
+  def readBool(self) -> bool:
     return self.readBits(1) == 1
 
-  def readByte(self, size = 1):
+  def readByte(self, size: int = 1) -> int:
     return self.readBits(size * 8)
 
-  def readBitStreamFromBytes(self, size):
+  def readBitStreamFromBytes(self, size: int) -> 'BitStream':
     return BitStream(bytes([
-      self.readBytes(1) for _ in range(size)
+      self.readByte(1) for _ in range(size)
     ]))
 
-  def readUEG(self):
+  def readUEG(self) -> int:
     count = self.__count_trailing_zeros()
     return self.readBits(count + 1) - 1
 
-  def readSEG(self):
+  def readSEG(self) -> int:
     ueg = self.readUEG()
     if ueg % 2 == 1:
       return (ueg + 1) >> 1
     else:
       return -1 * (ueg >> 1)
 
-  def retainByte(self, byte):
+  def retainByte(self, byte: int) -> None:
     for i in range(8):
       self.bits.appendleft(1 if byte & (1 << i) != 0 else 0)

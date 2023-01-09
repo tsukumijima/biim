@@ -3,41 +3,41 @@
 import asyncio
 import math
 from collections import deque
+from datetime import datetime
 
 from hls.segment import Segment
 
 class M3U8:
-  def __init__(self, target_duration, part_target, list_size, hasInit = False):
-    self.media_sequence = 0
-    self.target_duration = target_duration
-    self.part_target = part_target
-    self.list_size = list_size
-    self.hasInit = hasInit
-    self.segments = deque()
-    self.outdated = deque()
-    self.published = False
-    self.futures = []
+  def __init__(self, target_duration: int, part_target: float, list_size: int, hasInit: bool = False):
+    self.media_sequence: int = 0
+    self.target_duration: int = target_duration
+    self.part_target: float = part_target
+    self.list_size: int = list_size
+    self.hasInit: bool = hasInit
+    self.segments: deque[Segment] = deque()
+    self.outdated: deque[Segment] = deque()
+    self.published: bool = False
+    self.futures: list[asyncio.Future[str]] = []
 
-  def in_range(self, msn):
+  def in_range(self, msn: int) -> bool:
     return self.media_sequence <= msn and msn < self.media_sequence + len(self.segments)
 
-  def in_outdated(self, msn):
+  def in_outdated(self, msn: int) -> bool:
     return self.media_sequence > msn and msn >= self.media_sequence - len(self.outdated)
 
-  def plain(self):
-    f = asyncio.Future()
+  def plain(self) -> asyncio.Future[str] | None:
+    f: asyncio.Future[str] = asyncio.Future()
     if self.published:
       f.set_result(self.manifest())
     else:
       self.futures.append(f)
     return f
 
-  def blocking(self, msn, part, skip=False):
+  def blocking(self, msn: int, part: int | None, skip: bool = False) -> asyncio.Future[str] | None:
     if not self.in_range(msn): return None
 
     index = msn - self.media_sequence
 
-    f = None
     if part is None:
       f = self.segments[index].m3u8(skip)
       if self.segments[index].isCompleted():
@@ -50,11 +50,11 @@ class M3U8:
         f.set_result(self.manifest(skip))
     return f
 
-  def push(self, packet):
+  def push(self, packet: bytes | bytearray | memoryview) -> None:
     if not self.segments: return
     self.segments[-1].push(packet)
 
-  def newSegment(self, beginPTS, isIFrame = False, programDateTime = None):
+  def newSegment(self, beginPTS: int, isIFrame: bool = False, programDateTime: datetime | None = None):
     self.segments.append(Segment(beginPTS, isIFrame, programDateTime))
     while self.list_size is not None and self.list_size < len(self.segments):
       self.outdated.appendleft(self.segments.popleft())
@@ -62,11 +62,11 @@ class M3U8:
     while self.list_size is not None and self.list_size < len(self.outdated):
       self.outdated.pop()
 
-  def newPartial(self, beginPTS, isIFrame = False):
+  def newPartial(self, beginPTS: int, isIFrame: bool = False) -> None:
     if not self.segments: return
     self.segments[-1].newPartial(beginPTS, isIFrame)
 
-  def completeSegment(self, endPTS):
+  def completeSegment(self, endPTS: int) -> None:
     self.published = True
 
     if not self.segments: return
@@ -76,12 +76,12 @@ class M3U8:
       if not f.done(): f.set_result(self.manifest())
     self.futures = []
 
-  def completePartial(self, endPTS):
+  def completePartial(self, endPTS: int) -> None:
     if not self.segments: return
     self.segments[-1].completePartial(endPTS)
     self.segments[-1].notify(self.manifest(True), self.manifest(False))
 
-  def continuousSegment(self, endPTS, isIFrame = False, programDateTime = None):
+  def continuousSegment(self, endPTS: int, isIFrame: bool = False, programDateTime: datetime | None = None) -> None:
     lastSegment = self.segments[-1] if self.segments else None
     self.newSegment(endPTS, isIFrame, programDateTime)
 
@@ -93,7 +93,7 @@ class M3U8:
       if not f.done(): f.set_result(self.manifest())
     self.futures = []
 
-  def continuousPartial(self, endPTS, isIFrame = False):
+  def continuousPartial(self, endPTS: int, isIFrame: bool = False) -> None:
     lastSegment = self.segments[-1] if self.segments else None
     lastPartial = lastSegment.partials[-1] if lastSegment else None
     self.newPartial(endPTS, isIFrame)
@@ -102,7 +102,7 @@ class M3U8:
     lastPartial.complete(endPTS)
     lastPartial.notify(self.manifest(True), self.manifest(False))
 
-  async def segment(self, msn):
+  async def segment(self, msn: int) -> asyncio.Queue[bytes | bytearray | memoryview | None] | None:
     if not self.in_range(msn):
       if not self.in_outdated(msn): return None
       index = (self.media_sequence - msn) - 1
@@ -110,7 +110,7 @@ class M3U8:
     index = msn - self.media_sequence
     return await self.segments[index].response()
 
-  async def partial(self, msn, part):
+  async def partial(self, msn: int, part: int) -> asyncio.Queue[bytes | bytearray | memoryview | None] | None:
     if not self.in_range(msn):
       if not self.in_outdated(msn): return None
       index = (self.media_sequence - msn) - 1
@@ -120,13 +120,13 @@ class M3U8:
     if part > len(self.segments[index].partials): return None
     return await self.segments[index].partials[part].response()
 
-  def estimated_tartget_duration(self):
+  def estimated_tartget_duration(self) -> int:
     target_duration = self.target_duration
     for segment in self.segments:
       if segment.isCompleted(): target_duration = max(target_duration, math.ceil(segment.extinf().total_seconds()))
     return target_duration
 
-  def manifest(self, skip=False):
+  def manifest(self, skip: bool = False) -> str:
     m3u8 = ''
     m3u8 += f'#EXTM3U\n'
     m3u8 += f'#EXT-X-VERSION:{9 if self.list_size is None else 6}\n'

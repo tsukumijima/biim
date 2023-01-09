@@ -62,9 +62,9 @@ async def main():
   args = parser.parse_args()
 
   m3u8 = M3U8(args.target_duration, args.part_duration, args.list_size, True)
-  init = asyncio.Future()
+  init: asyncio.Future[bytes] = asyncio.Future()
 
-  async def playlist(request):
+  async def playlist(request: web.Request) -> web.Response:
     nonlocal m3u8
     msn = request.query['_HLS_msn'] if '_HLS_msn' in request.query else None
     part = request.query['_HLS_part'] if '_HLS_part' in request.query else None
@@ -78,6 +78,8 @@ async def main():
       result = await future
       return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache,no-store'}, text=result, content_type="application/x-mpegURL")
     else:
+      if msn is None:
+        return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="application/x-mpegURL")
       msn = int(msn)
       if part is None: part = 0
       part = int(part)
@@ -87,11 +89,12 @@ async def main():
 
       result = await future
       return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000'}, text=result, content_type="application/x-mpegURL")
-  async def segment(request):
+  async def segment(request: web.Request) -> web.Response | web.StreamResponse:
     nonlocal m3u8
     msn = request.query['msn'] if 'msn' in request.query else None
 
-    if msn is None: msn = 0
+    if msn is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
     msn = int(msn)
     queue = await m3u8.segment(msn)
     if queue is None:
@@ -107,14 +110,16 @@ async def main():
 
     await response.write_eof()
     return response
-  async def partial(request):
+  async def partial(request: web.Request) -> web.Response | web.StreamResponse:
     nonlocal m3u8
     msn = request.query['msn'] if 'msn' in request.query else None
     part = request.query['part'] if 'part' in request.query else None
 
-    if msn is None: msn = 0
+    if msn is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
     msn = int(msn)
-    if part is None: part = 0
+    if part is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
     part = int(part)
     queue = await m3u8.partial(msn, part)
     if queue is None:
@@ -130,7 +135,7 @@ async def main():
 
     await response.write_eof()
     return response
-  async def initalization(request):
+  async def initalization(request: web.Request) -> web.Response:
     if init is None:
       return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
 
@@ -157,39 +162,39 @@ async def main():
   H265_PES_Parser = PESParser(H265PES)
   ID3_PES_Parser = PESParser(PES)
 
-  PCR_PID = None
-  LATEST_PCR_VALUE = None
-  LATEST_PCR_TIMESTAMP_90KHZ = 0
-  LATEST_PCR_DATETIME = None
+  PCR_PID: int | None = None
+  LATEST_PCR_VALUE: int | None = None
+  LATEST_PCR_TIMESTAMP_90KHZ: int | None = 0
+  LATEST_PCR_DATETIME: datetime | None = None
 
-  LATEST_VIDEO_TIMESTAMP_90KHZ = None
-  LATEST_VIDEO_MONOTONIC_TIME = None
-  LATEST_VIDEO_SLEEP_DIFFERENCE = 0
+  LATEST_VIDEO_TIMESTAMP_90KHZ: int | None = None
+  LATEST_VIDEO_MONOTONIC_TIME: int | None = None
+  LATEST_VIDEO_SLEEP_DIFFERENCE: int = 0
 
-  PMT_PID = None
-  AAC_PID = None
-  H264_PID = None
-  H265_PID = None
-  ID3_PID = None
+  PMT_PID: int | None = None
+  AAC_PID: int | None = None
+  H264_PID: int | None = None
+  H265_PID: int | None = None
+  ID3_PID: int | None = None
 
-  AAC_CONFIG = None
+  AAC_CONFIG: tuple[bytes, int, int] = None
 
-  CURR_H264 = None
-  NEXT_H264 = None
-  CURR_H265 = None
-  NEXT_H265 = None
+  CURR_H264: tuple[bool, deque[bytes], int, int] | None= None
+  NEXT_H264: tuple[bool, deque[bytes], int, int] | None = None
+  CURR_H265: tuple[bool, deque[bytes], int, int] | None = None
+  NEXT_H265: tuple[bool, deque[bytes], int, int] | None = None
 
-  H264_FRAGMENTS = deque()
-  H265_FRAGMENTS = deque()
-  AAC_FRAGMENTS = deque()
-  EMSG_FRAGMENTS = deque()
+  H264_FRAGMENTS: deque[bytes] = deque()
+  H265_FRAGMENTS: deque[bytes] = deque()
+  AAC_FRAGMENTS: deque[bytes] = deque()
+  EMSG_FRAGMENTS: deque[bytes] = deque()
 
-  VPS = None
-  SPS = None
-  PPS = None
+  VPS: bytes | None = None
+  SPS: bytes | None = None
+  PPS: bytes | None = None
 
   INITIALIZATION_SEGMENT_DISPATCHED = False
-  PARTIAL_BEGIN_TIMESTAMP = None
+  PARTIAL_BEGIN_TIMESTAMP: int | None = None
 
   if args.input is not sys.stdin.buffer or os.name == 'nt':
     reader = BufferingAsyncReader(args.input, ts.PACKET_SIZE * 16)
@@ -445,7 +450,6 @@ async def main():
       PAT_Parser.push(packet)
       for PAT in PAT_Parser:
         if PAT.CRC32() != 0: continue
-        LAST_PAT = PAT
 
         for program_number, program_map_PID in PAT:
           if program_number == 0: continue
@@ -459,7 +463,6 @@ async def main():
       PMT_Parser.push(packet)
       for PMT in PMT_Parser:
         if PMT.CRC32() != 0: continue
-        LAST_PMT = PMT
 
         PCR_PID = PMT.PCR_PID
         for stream_type, elementary_PID in PMT:

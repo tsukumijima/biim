@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
 
+from typing import Any
+
 class PES:
   HEADER_SIZE = 6
 
-  def __init__(self, payload = b''):
+  def __init__(self, payload: bytes | bytearray | memoryview = b''):
     self.payload = memoryview(payload)
 
-  def __getitem__(self, item):
+  def __getitem__(self, item: Any) -> Any:
     return self.payload[item]
 
-  def __len__(self):
+  def __len__(self) -> int:
     return len(self.payload)
 
-  def packet_start_code_prefix(self):
+  def packet_start_code_prefix(self) -> int:
     return (self.payload[0] << 16) | (self.payload[1] << 8) | self.payload[2]
 
-  def stream_id(self):
+  def stream_id(self) -> int:
     return self.payload[3]
 
-  def PES_packet_length(self):
+  def PES_packet_length(self) -> int:
     return (self.payload[4] << 8) | self.payload[5]
 
-  def has_optional_pes_header(self):
+  def has_optional_pes_header(self) -> bool:
     if self.stream_id() in [0b10111100, 0b10111111, 0b11110000, 0b11110001, 0b11110010, 0b11111000, 0b11111111]:
       return False
     elif self.stream_id() in [0b10111110]:
@@ -29,25 +31,25 @@ class PES:
     else:
       return True
 
-  def has_pts(self):
+  def has_pts(self) -> bool:
     if self.has_optional_pes_header():
       return (self.payload[PES.HEADER_SIZE + 1] & 0x80) != 0
     else:
       return False
 
-  def has_dts(self):
+  def has_dts(self) -> bool:
     if self.has_optional_pes_header():
       return (self.payload[PES.HEADER_SIZE + 1] & 0x40) != 0
     else:
       return False
 
-  def pes_header_length(self):
+  def pes_header_length(self) -> int | None:
     if self.has_optional_pes_header():
       return (self.payload[PES.HEADER_SIZE + 2])
     else:
       return None
 
-  def pts(self):
+  def pts(self) -> int | None:
     if not self.has_pts(): return None
 
     pts = 0
@@ -58,7 +60,7 @@ class PES:
     pts <<= 7; pts |= ((self.payload[PES.HEADER_SIZE + 3 + 4] & 0xFE) >> 1)
     return pts
 
-  def dts(self):
+  def dts(self) -> int | None:
     if not self.has_dts(): return None
 
     dts = 0
@@ -77,7 +79,7 @@ class PES:
 
     return dts
 
-  def PES_packet_data(self):
+  def PES_packet_data(self) -> memoryview:
     if self.has_optional_pes_header():
       return self.payload[PES.HEADER_SIZE + 3 + self.payload[PES.HEADER_SIZE + 2]:]
     else:

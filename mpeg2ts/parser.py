@@ -1,27 +1,30 @@
 #!/usr/bin/env python3
 
+from collections import deque
+from typing import Generic, TypeVar, Iterator
+
 from mpeg2ts import ts
 from mpeg2ts.section import Section
 from mpeg2ts.pes import PES
 
-from collections import deque
+SectionType = TypeVar('SectionType', bound=Section)
+PESType = TypeVar('PESType', bound=PES)
 
-class SectionParser:
+class SectionParser(Generic[SectionType]):
+  def __init__(self, _class: SectionType = Section):
+    self.section: bytearray | None = None
+    self.queue: deque[SectionType] = deque()
+    self._class: SectionType = _class
 
-  def __init__(self, _class=Section):
-    self.section = None
-    self.queue = deque()
-    self._class = _class
-
-  def __iter__(self):
+  def __iter__(self) -> Iterator[SectionType]:
     return self
 
-  def __next__(self):
+  def __next__(self) -> SectionType:
     if not self.queue:
       raise StopIteration()
     return self.queue.popleft()
 
-  def push(self, packet):
+  def push(self, packet: bytes | bytearray | memoryview) -> None:
     begin = ts.HEADER_SIZE + (1 + ts.adaptation_field_length(packet) if ts.has_adaptation_field(packet) else 0)
     if ts.payload_unit_start_indicator(packet): begin += 1
 
@@ -40,7 +43,7 @@ class SectionParser:
           section_length = ((packet[begin + 1] & 0x0F) << 8) | packet[begin + 2]
           next = min(begin + (3 + section_length), ts.PACKET_SIZE)
           self.section = bytearray()
-        self.section += packet[begin:next]
+        self.section += (packet[begin:next])
 
         section_length = ((self.section[1] & 0x0F) << 8) | self.section[2]
         if len(self.section) == section_length + 3:
@@ -50,7 +53,7 @@ class SectionParser:
           self.section = None
 
         begin = next
-    else:
+    elif self.section is not None:
       section_length = ((self.section[1] & 0x0F) << 8) | self.section[2]
       remains = max(0, section_length + 3 - len(self.section))
 
@@ -63,22 +66,21 @@ class SectionParser:
       elif len(self.section) > section_length + 3:
         self.section = None
 
-class PESParser:
-
-  def __init__(self, _class=PES):
+class PESParser(Generic[PESType]):
+  def __init__(self, _class: PESType = PES):
     self.pes = None
-    self.queue = deque()
-    self._class = _class
+    self.queue: deque[PESType] = deque()
+    self._class: PESType = _class
 
-  def __iter__(self):
+  def __iter__(self) -> Iterator[PESType]:
     return self
 
-  def __next__(self):
+  def __next__(self) -> PESType:
     if not self.queue:
       raise StopIteration()
     return self.queue.popleft()
 
-  def push(self, packet):
+  def push(self, packet: bytes | bytearray | memoryview) -> None:
     begin = ts.HEADER_SIZE + (1 + ts.adaptation_field_length(packet) if ts.has_adaptation_field(packet) else 0)
     if not ts.payload_unit_start_indicator(packet) and not self.pes: return
 

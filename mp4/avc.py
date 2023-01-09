@@ -3,7 +3,7 @@ from util.bitstream import BitStream
 
 escapes = set([0x00, 0x01, 0x02, 0x03])
 
-def ebsp2rbsp(data):
+def ebsp2rbsp(data: bytes | bytearray | memoryview):
   rbsp = bytearray(data[:2])
   length = len(data)
   for index in range(2, length):
@@ -12,8 +12,7 @@ def ebsp2rbsp(data):
     rbsp.append(data[index])
   return bytes(rbsp)
 
-# TODO: Implement!
-def avcTrack(trackId, timescale, sps, pps):
+def avcTrack(trackId: int, timescale: int, sps: bytes | bytearray | memoryview, pps: bytes | bytearray | memoryview) -> bytes:
   need_extra_fields = sps[3] not in [66, 77, 88]
   chroma_format_idc = None
   bit_depth_luma_minus8 = None

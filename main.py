@@ -37,7 +37,7 @@ async def main():
   args = parser.parse_args()
 
   m3u8 = M3U8(args.target_duration, args.part_duration, args.list_size)
-  async def playlist(request):
+  async def playlist(request: web.Request) -> web.Response:
     nonlocal m3u8
     msn = request.query['_HLS_msn'] if '_HLS_msn' in request.query else None
     part = request.query['_HLS_part'] if '_HLS_part' in request.query else None
@@ -51,6 +51,8 @@ async def main():
       result = await future
       return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache,no-store'}, text=result, content_type="application/x-mpegURL")
     else:
+      if msn is None:
+        return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="application/x-mpegURL")
       msn = int(msn)
       if part is None: part = 0
       part = int(part)
@@ -60,11 +62,12 @@ async def main():
 
       result = await future
       return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000'}, text=result, content_type="application/x-mpegURL")
-  async def segment(request):
+  async def segment(request: web.Request) -> web.Response | web.StreamResponse:
     nonlocal m3u8
     msn = request.query['msn'] if 'msn' in request.query else None
 
-    if msn is None: msn = 0
+    if msn is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
     msn = int(msn)
     queue = await m3u8.segment(msn)
     if queue is None:
@@ -80,14 +83,16 @@ async def main():
 
     await response.write_eof()
     return response
-  async def partial(request):
+  async def partial(request: web.Request) -> web.Response | web.StreamResponse:
     nonlocal m3u8
     msn = request.query['msn'] if 'msn' in request.query else None
     part = request.query['part'] if 'part' in request.query else None
 
-    if msn is None: msn = 0
+    if msn is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
     msn = int(msn)
-    if part is None: part = 0
+    if part is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
     part = int(part)
     queue = await m3u8.partial(msn, part)
     if queue is None:
@@ -120,23 +125,22 @@ async def main():
   PMT_Parser = SectionParser(PMTSection)
   H264_PES_Parser = PESParser(PES)
 
-  LATEST_VIDEO_TIMESTAMP = None
-  LATEST_VIDEO_DATETIME = None
-  LATEST_VIDEO_MONOTONIC_TIME = None
-  LATEST_VIDEO_SLEEP_DIFFERENCE = 0
+  LATEST_VIDEO_TIMESTAMP: int | None = None
+  LATEST_VIDEO_DATETIME: int | None = None
+  LATEST_VIDEO_MONOTONIC_TIME: int | None = None
+  LATEST_VIDEO_SLEEP_DIFFERENCE: int | None = 0
 
-  PMT_PID = None
-  PCR_PID = None
-  H264_PID = None
+  PMT_PID: int | None = None
+  H264_PID: int | None = None
   FIRST_IDR_DETECTED = False
 
-  LAST_PAT = None
-  LAST_PMT = None
+  LAST_PAT: bytes | None = None
+  LAST_PMT: bytes | None = None
   PAT_CC = 0
   PMT_CC = 0
   H264_CC = 0
 
-  PARTIAL_BEGIN_TIMESTAMP = None
+  PARTIAL_BEGIN_TIMESTAMP: int | None = None
 
   def push_PAT_PMT(PAT, PMT):
     nonlocal m3u8
@@ -202,7 +206,6 @@ async def main():
         if PMT.CRC32() != 0: continue
         LAST_PMT = PMT
 
-        PCR_PID = PMT.PCR_PID
         for stream_type, elementary_PID in PMT:
           if stream_type == 0x1b:
             H264_PID = elementary_PID
