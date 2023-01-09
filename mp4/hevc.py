@@ -3,7 +3,7 @@ from util.bitstream import BitStream
 
 escapes = set([0x00, 0x01, 0x02, 0x03])
 
-def ebsp2rbsp(data: bytes | bytearray | memoryview):
+def ebsp2rbsp(data: bytes | bytearray | memoryview) -> bytes:
   rbsp = bytearray(data[:2])
   length = len(data)
   for index in range(2, length):

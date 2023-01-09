@@ -30,7 +30,7 @@ class PartialSegment:
       self.queues.append(queue)
     return queue
 
-  def m3u8(self, skip = False) -> asyncio.Future[str]:
+  def m3u8(self, skip: bool = False) -> asyncio.Future[str]:
     f: asyncio.Future[str] = asyncio.Future()
     if not self.isCompleted():
       if skip: self.m3u8s_with_skip.append(f)

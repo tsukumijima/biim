@@ -54,7 +54,7 @@ class M3U8:
     if not self.segments: return
     self.segments[-1].push(packet)
 
-  def newSegment(self, beginPTS: int, isIFrame: bool = False, programDateTime: datetime | None = None):
+  def newSegment(self, beginPTS: int, isIFrame: bool = False, programDateTime: datetime | None = None) -> None:
     self.segments.append(Segment(beginPTS, isIFrame, programDateTime))
     while self.list_size is not None and self.list_size < len(self.segments):
       self.outdated.appendleft(self.segments.popleft())
