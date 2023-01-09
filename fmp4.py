@@ -72,20 +72,20 @@ async def main():
     if msn is None and part is None:
       future = m3u8.plain()
       if future is None:
-        return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="application/x-mpegURL")
+        return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="application/x-mpegURL")
 
       result = await future
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, text=result, content_type="application/x-mpegURL")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache,no-store'}, text=result, content_type="application/x-mpegURL")
     else:
       msn = int(msn)
       if part is None: part = 0
       part = int(part)
       future = m3u8.blocking(msn, part)
       if future is None:
-        return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="application/x-mpegURL")
+        return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="application/x-mpegURL")
 
       result = await future
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, text=result, content_type="application/x-mpegURL")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000'}, text=result, content_type="application/x-mpegURL")
   async def segment(request):
     nonlocal m3u8
     msn = request.query['msn'] if 'msn' in request.query else None
@@ -94,9 +94,9 @@ async def main():
     msn = int(msn)
     queue = await m3u8.segment(msn)
     if queue is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
 
-    response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Content-Type': 'video/mp4'}, status=200)
+    response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000', 'Content-Type': 'video/mp4'}, status=200)
     await response.prepare(request)
 
     while True:
@@ -117,9 +117,9 @@ async def main():
     part = int(part)
     queue = await m3u8.partial(msn, part)
     if queue is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
 
-    response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Content-Type': 'video/mp4'}, status=200)
+    response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000', 'Content-Type': 'video/mp4'}, status=200)
     await response.prepare(request)
 
     while True:
@@ -131,10 +131,10 @@ async def main():
     return response
   async def initalization(request):
     if init is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
 
     body = await asyncio.shield(init)
-    return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/mp4")
+    return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000'}, body=body, content_type="video/mp4")
 
   # setup aiohttp
   app = web.Application()
