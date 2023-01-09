@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from typing import Iterator, Sized
+from typing import Iterator
 import asyncio
 from datetime import datetime, timedelta, timezone
 
@@ -71,7 +71,7 @@ class Segment(PartialSegment):
   def __iter__(self) -> Iterator[PartialSegment]:
     return iter(self.partials)
 
-  def __len__(self) -> Sized:
+  def __len__(self) -> int:
     return len(self.partials)
 
   def push(self, packet: bytes | bytearray | memoryview) -> None:
