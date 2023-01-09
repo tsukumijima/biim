@@ -9,7 +9,7 @@ import os
 import time
 
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from mpeg2ts import ts
 from mpeg2ts.packetize import packetize_section, packetize_pes
@@ -144,6 +144,7 @@ async def main():
   H264_PES_Parser = PESParser(PES)
 
   LATEST_VIDEO_TIMESTAMP = None
+  LATEST_VIDEO_DATETIME = None
   LATEST_VIDEO_MONOTONIC_TIME = None
   LATEST_VIDEO_SLEEP_DIFFERENCE = 0
 
@@ -239,6 +240,9 @@ async def main():
       for H264 in H264_PES_Parser:
         hasIDR = False
         timestamp = H264.dts() if H264.has_dts() else H264.pts()
+        if LATEST_VIDEO_DATETIME is None: LATEST_VIDEO_DATETIME = datetime.now(timezone.utc)
+        TIMESTAMP_DIFF = ((timestamp - LATEST_VIDEO_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ if LATEST_VIDEO_TIMESTAMP is not None else 0
+        LATEST_VIDEO_DATETIME += timedelta(seconds=TIMESTAMP_DIFF)
 
         data = H264.PES_packet_data()
         begin = 0
@@ -278,7 +282,7 @@ async def main():
               PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
               m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
             PARTIAL_BEGIN_TIMESTAMP = timestamp
-            m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
+            m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, LATEST_VIDEO_DATETIME)
             push_PAT_PMT(LAST_PAT, LAST_PMT)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
           PART_DIFF = (timestamp - PARTIAL_BEGIN_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE

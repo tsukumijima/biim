@@ -56,8 +56,8 @@ class M3U8:
     if not self.segments: return
     self.segments[-1].push(packet)
 
-  def newSegment(self, beginPTS, isIFrame = False):
-    self.segments.append(Segment(beginPTS, isIFrame))
+  def newSegment(self, beginPTS, isIFrame = False, programDateTime = None):
+    self.segments.append(Segment(beginPTS, isIFrame, programDateTime))
     while self.list_size is not None and self.list_size < len(self.segments):
       self.outdated.appendleft(self.segments.popleft())
       self.media_sequence += 1
@@ -90,9 +90,9 @@ class M3U8:
       if not m.done(): m.set_result(self.manifest())
     self.segments[-1].partials[-1].m3u8s
 
-  def continuousSegment(self, endPTS, isIFrame = False):
+  def continuousSegment(self, endPTS, isIFrame = False, programDateTime = None):
     lastSegment = self.segments[-1] if self.segments else None
-    self.newSegment(endPTS, isIFrame)
+    self.newSegment(endPTS, isIFrame, programDateTime)
 
     if not lastSegment: return
     self.published = True

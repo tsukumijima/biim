@@ -3,7 +3,7 @@
 import math
 import os
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from mpeg2ts import ts
 
@@ -54,10 +54,10 @@ class PartialSegment:
     return timedelta(seconds = (((endPTS - self.beginPTS + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
 
 class Segment(PartialSegment):
-  def __init__(self, beginPTS, isIFrame = False):
+  def __init__(self, beginPTS, isIFrame = False, programDateTime = None):
     super().__init__(beginPTS, isIFrame = False)
     self.partials = [PartialSegment(beginPTS, isIFrame)]
-    self.program_date_time = datetime.now()
+    self.program_date_time = programDateTime or datetime.now(timezone.utc)
 
   def __iter__(self):
     return iter(self.partials)

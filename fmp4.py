@@ -11,7 +11,7 @@ import time
 from collections import deque
 
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from mpeg2ts import ts
 from mpeg2ts.packetize import packetize_section, packetize_pes
@@ -183,6 +183,7 @@ async def main():
   PCR_PID = None
   LATEST_PCR_VALUE = None
   LATEST_PCR_TIMESTAMP_90KHZ = 0
+  LATEST_PCR_DATETIME = None
 
   LATEST_VIDEO_TIMESTAMP_90KHZ = None
   LATEST_VIDEO_MONOTONIC_TIME = None
@@ -243,8 +244,10 @@ async def main():
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
         if LATEST_PCR_VALUE is None: continue
-        timestamp = (((H264.dts() if H264.has_dts() else H264.pts()) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
-        cts = (H264.pts() - (H264.dts() if H264.has_dts() else H264.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
+        dts = H264.dts() if H264.has_dts() else H264.pts()
+        cts = (H264.pts() - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
+        timestamp = ((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+        program_date_time = LATEST_PCR_DATETIME + timedelta(seconds=(((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
         keyInSamples = False
         samples = deque()
 
@@ -310,7 +313,7 @@ async def main():
               PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
               m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
           PARTIAL_BEGIN_TIMESTAMP = timestamp
-          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
+          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, program_date_time)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
           PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
           if args.part_duration * ts.HZ <= PART_DIFF:
@@ -336,8 +339,10 @@ async def main():
       H265_PES_Parser.push(packet)
       for H265 in H265_PES_Parser:
         if LATEST_PCR_VALUE is None: continue
-        timestamp = (((H265.dts() if H265.has_dts() else  H265.pts()) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
-        cts = (H265.pts() - (H265.dts() if H265.has_dts() else  H265.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
+        dts = H265.dts() if H265.has_dts() else H265.pts()
+        cts = (H265.pts() - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
+        timestamp = ((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+        program_date_time = LATEST_PCR_DATETIME + timedelta(seconds=(((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
         keyInSamples = False
         samples = deque()
 
@@ -405,7 +410,7 @@ async def main():
               PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
               m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
           PARTIAL_BEGIN_TIMESTAMP = timestamp
-          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
+          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, program_date_time)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
           PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
           if args.part_duration * ts.HZ <= PART_DIFF:
@@ -503,8 +508,10 @@ async def main():
 
     if PID == PCR_PID and ts.has_pcr(packet):
       PCR_VALUE = (ts.pcr(packet) - ts.HZ + ts.PCR_CYCLE) % ts.PCR_CYCLE
-      if LATEST_PCR_VALUE is not None:
-        LATEST_PCR_TIMESTAMP_90KHZ += (PCR_VALUE - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE
+      PCR_DIFF = ((PCR_VALUE - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) if LATEST_PCR_VALUE is not None else 0
+      LATEST_PCR_TIMESTAMP_90KHZ += PCR_DIFF
+      if LATEST_PCR_DATETIME is None: LATEST_PCR_DATETIME = datetime.now(timezone.utc) - timedelta(seconds=(1))
+      LATEST_PCR_DATETIME += timedelta(seconds=(PCR_DIFF / ts.HZ))
       LATEST_PCR_VALUE = PCR_VALUE
 
 if __name__ == '__main__':
