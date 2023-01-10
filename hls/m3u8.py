@@ -5,7 +5,26 @@ import math
 from collections import deque
 from datetime import datetime
 
+from typing import Any
+
 from hls.segment import Segment
+
+class Daterange:
+  def __init__(self, id: str, start_date: datetime, end_date: datetime | None = None, **kwargs):
+    self.id: str = id
+    self.start_date: datetime = start_date
+    self.end_date: datetime | None = end_date
+    self.attributes: dict[str, Any] = kwargs
+
+  def close(self, end_date: datetime) -> None:
+    self.end_date = end_date
+
+  def __str__(self) -> str:
+    duration = (self.end_date - self.start_date )if self.end_date else None
+    attributes = ','.join(([f'DURATION={duration.total_seconds()}'] if duration is not None else []) + [f'{attr}={value}' for attr, value in self.attributes.items() if duration is None or attr != "PLANNED-DURATION"])
+    attributes = ',' + attributes if attributes else ''
+
+    return f'#EXT-X-DATERANGE:ID="{self.id}",START-DATE="{self.start_date.isoformat()}"{attributes}\n' + (f'#EXT-X-DATERANGE:ID="{self.id}",END-DATE="{self.end_date.isoformat()}"\n' if self.end_date is not None else '')
 
 class M3U8:
   def __init__(self, target_duration: int, part_target: float, list_size: int, hasInit: bool = False):
@@ -14,6 +33,7 @@ class M3U8:
     self.part_target: float = part_target
     self.list_size: int = list_size
     self.hasInit: bool = hasInit
+    self.dateranges: dict[str, Daterange] = dict()
     self.segments: deque[Segment] = deque()
     self.outdated: deque[Segment] = deque()
     self.published: bool = False
@@ -120,6 +140,14 @@ class M3U8:
     if part > len(self.segments[index].partials): return None
     return await self.segments[index].partials[part].response()
 
+  def open(self, id: str, start_date: datetime, end_date: datetime | None = None,  **kwargs):
+    if id in self.dateranges: return
+    self.dateranges[id] = Daterange(id, start_date, end_date, **kwargs)
+
+  def close(self, id: str, end_date: datetime):
+    if id not in self.dateranges: return
+    self.dateranges[id].close(end_date)
+
   def estimated_tartget_duration(self) -> int:
     target_duration = self.target_duration
     for segment in self.segments:
@@ -138,9 +166,17 @@ class M3U8:
     else:
       m3u8 += f'#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={(self.part_target * 3.001):.06f}\n'
     m3u8 += f'#EXT-X-MEDIA-SEQUENCE:{self.media_sequence}\n'
+    m3u8 += f'\n'
 
     if self.hasInit:
       m3u8 += f'#EXT-X-MAP:URI="init"\n'
+    m3u8 += f'\n'
+
+    if len(self.segments) > 0:
+      for id in list(self.dateranges.keys()):
+        if self.dateranges[id].end_date is None: continue
+        if self.dateranges[id].end_date >= self.segments[0].program_date_time: continue
+        del self.dateranges[id]
 
     skip_end_index = 0
     if skip:
@@ -153,8 +189,11 @@ class M3U8:
           skip_end_index = seg_index
           break
     if skip_end_index > 0:
-      m3u8 += f'\n'
       m3u8 += f'#EXT-X-SKIP:SKIPPED-SEGMENTS={skip_end_index}\n'
+      m3u8 += f'\n'
+
+    for daterange in self.dateranges.values():
+      m3u8 += f'{daterange}'
 
     for seg_index, segment in enumerate(self.segments):
       if seg_index < skip_end_index: continue # SKIP
