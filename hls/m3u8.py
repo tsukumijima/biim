@@ -17,10 +17,11 @@ class Daterange:
     self.attributes: dict[str, Any] = kwargs
 
   def close(self, end_date: datetime) -> None:
+    if self.end_date is not None: return
     self.end_date = end_date
 
   def __str__(self) -> str:
-    duration = (self.end_date - self.start_date )if self.end_date else None
+    duration = (self.end_date - self.start_date) if self.end_date else None
     attributes = ','.join(([f'DURATION={duration.total_seconds()}'] if duration is not None else []) + [f'{attr}={value}' for attr, value in self.attributes.items() if duration is None or attr != "PLANNED-DURATION"])
     attributes = ',' + attributes if attributes else ''
 
@@ -166,11 +167,10 @@ class M3U8:
     else:
       m3u8 += f'#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={(self.part_target * 3.001):.06f}\n'
     m3u8 += f'#EXT-X-MEDIA-SEQUENCE:{self.media_sequence}\n'
-    m3u8 += f'\n'
 
     if self.hasInit:
+      m3u8 += f'\n'
       m3u8 += f'#EXT-X-MAP:URI="init"\n'
-    m3u8 += f'\n'
 
     if len(self.segments) > 0:
       for id in list(self.dateranges.keys()):
@@ -189,10 +189,11 @@ class M3U8:
           skip_end_index = seg_index
           break
     if skip_end_index > 0:
-      m3u8 += f'#EXT-X-SKIP:SKIPPED-SEGMENTS={skip_end_index}\n'
       m3u8 += f'\n'
+      m3u8 += f'#EXT-X-SKIP:SKIPPED-SEGMENTS={skip_end_index}\n'
 
     for daterange in self.dateranges.values():
+      m3u8 += f'\n'
       m3u8 += f'{daterange}'
 
     for seg_index, segment in enumerate(self.segments):

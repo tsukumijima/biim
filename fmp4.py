@@ -15,9 +15,9 @@ from datetime import datetime, timedelta, timezone
 
 from mpeg2ts import ts
 from mpeg2ts.packetize import packetize_section, packetize_pes
-from mpeg2ts.section import Section
 from mpeg2ts.pat import PATSection
 from mpeg2ts.pmt import PMTSection
+from mpeg2ts.scte import SpliceInfoSection, SpliceInsert, TimeSignal
 from mpeg2ts.pes import PES
 from mpeg2ts.h264 import H264PES
 from mpeg2ts.h265 import H265PES
@@ -29,6 +29,8 @@ from mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat, emsg
 from mp4.avc import avcTrack
 from mp4.hevc import hevcTrack
 from mp4.mp4a import mp4aTrack
+
+from id3.priv import PRIV
 
 from util.reader import BufferingAsyncReader
 
@@ -155,12 +157,13 @@ async def main():
   await loop.create_server(runner.server, '0.0.0.0', args.port)
 
   # setup reader
-  PAT_Parser = SectionParser(PATSection)
-  PMT_Parser = SectionParser(PMTSection)
-  AAC_PES_Parser = PESParser(PES)
-  H264_PES_Parser = PESParser(H264PES)
-  H265_PES_Parser = PESParser(H265PES)
-  ID3_PES_Parser = PESParser(PES)
+  PAT_Parser: SectionParser[PATSection] = SectionParser(PATSection)
+  PMT_Parser: SectionParser[PMTSection] = SectionParser(PMTSection)
+  AAC_PES_Parser: PESParser[PES] = PESParser(PES)
+  H264_PES_Parser: PESParser[H264PES] = PESParser(H264PES)
+  H265_PES_Parser: PESParser[H265PES] = PESParser(H265PES)
+  ID3_PES_Parser: PESParser[PES] = PESParser(PES)
+  SCTE35_Parser: SectionParser[SpliceInfoSection] = SectionParser(SpliceInfoSection)
 
   PCR_PID: int | None = None
   LATEST_PCR_VALUE: int | None = None
@@ -176,6 +179,7 @@ async def main():
   H264_PID: int | None = None
   H265_PID: int | None = None
   ID3_PID: int | None = None
+  SCTE35_PID: int | None = None
 
   AAC_CONFIG: tuple[bytes, int, int] = None
 
@@ -486,6 +490,8 @@ async def main():
             AAC_PID = elementary_PID
           elif stream_type == 0x15:
             ID3_PID = elementary_PID
+          elif stream_type == 0x86:
+            SCTE35_PID = elementary_PID
 
     elif PID == ID3_PID:
       ID3_PES_Parser.push(packet)
@@ -494,6 +500,33 @@ async def main():
         timestamp = ((ID3_PES.pts() - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
         ID3 = ID3_PES.PES_packet_data()
         EMSG_FRAGMENTS.append(emsg(ts.HZ, timestamp, None, 'https://aomedia.org/emsg/ID3', ID3))
+
+    elif PID == SCTE35_PID:
+      SCTE35_Parser.push(packet)
+      for SCTE35 in SCTE35_Parser:
+        if SCTE35.CRC32() != 0: continue
+
+        if SCTE35.splice_command_type == 0x05: # splice insert
+          splice_insert: SpliceInsert = SCTE35.splice_command
+          if splice_insert.splice_event_cancel_indicator: continue
+          if not splice_insert.program_splice_flag: continue
+          if splice_insert.splice_immediate_flag or not splice_insert.splice_time.time_specified_flag:
+            if LATEST_VIDEO_TIMESTAMP_90KHZ is None: continue
+            EMSG_FRAGMENTS.append(emsg(ts.HZ, LATEST_VIDEO_TIMESTAMP_90KHZ, None, 'https://aomedia.org/emsg/ID3', PRIV('urn:scte:scte35:2013:bin', SCTE35[:])))
+          else:
+            if LATEST_PCR_VALUE is None: continue
+            timestamp = ((splice_insert.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+            EMSG_FRAGMENTS.append(emsg(ts.HZ, timestamp, None, 'https://aomedia.org/emsg/ID3', PRIV('urn:scte:scte35:2013:bin', SCTE35[:])))
+
+        elif SCTE35.splice_command_type == 0x06: # time signal
+          time_signal: TimeSignal = SCTE35.splice_command
+          if not time_signal.splice_time.time_specified_flag:
+            if LATEST_VIDEO_TIMESTAMP_90KHZ is None: continue
+            EMSG_FRAGMENTS.append(emsg(ts.HZ, LATEST_VIDEO_TIMESTAMP_90KHZ, None, 'https://aomedia.org/emsg/ID3', PRIV('urn:scte:scte35:2013:bin', SCTE35[:])))
+          else:
+            if LATEST_PCR_VALUE is None: continue
+            timestamp = ((time_signal.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+            EMSG_FRAGMENTS.append(emsg(ts.HZ, timestamp, None, 'https://aomedia.org/emsg/ID3', PRIV('urn:scte:scte35:2013:bin', SCTE35[:])))
 
     else:
       pass
