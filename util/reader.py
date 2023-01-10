@@ -1,8 +1,7 @@
 import asyncio
-import io
 
 class BufferingAsyncReader:
-  def __init__(self, reader: io.BinaryIO, size: int):
+  def __init__(self, reader, size: int):
     self.reader = reader
     self.buffer: bytearray = bytearray()
     self.size: int = size
