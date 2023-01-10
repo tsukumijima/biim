@@ -230,7 +230,7 @@ async def main():
         cts = (H264.pts() - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
         timestamp = ((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
         program_date_time = LATEST_PCR_DATETIME + timedelta(seconds=(((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
-        keyInSamples = False
+        keyframe_in_samples = False
         samples = deque()
 
         for ebsp in H264:
@@ -243,16 +243,20 @@ async def main():
           elif nal_unit_type == 0x09 or nal_unit_type == 0x06: # AUD or SEI
             pass
           elif nal_unit_type == 0x05:
-            keyInSamples = True
+            keyframe_in_samples = True
             samples.append(ebsp)
           else:
             samples.append(ebsp)
-        NEXT_H264 = (keyInSamples, samples, timestamp, cts) if samples else None
+        NEXT_H264 = (keyframe_in_samples, samples, timestamp, cts, program_date_time) if samples else None
 
-        hasIDR = False
+        has_IDR = False
+        begin_timestamp: int | None = None
+        begin_program_date_time: datetime | None = None
         if CURR_H264:
-          isKeyframe, samples, dts, cts = CURR_H264
-          hasIDR = isKeyframe
+          has_key_frame, samples, dts, cts, pdt = CURR_H264
+          has_IDR = has_key_frame
+          begin_timestamp = dts
+          begin_program_date_time = pdt
           duration = timestamp - dts
           content = bytearray()
           while samples:
@@ -263,7 +267,7 @@ async def main():
             b''.join([
               moof(0,
                 [
-                  (1, duration, dts, 0, [(len(content), duration, isKeyframe, cts)])
+                  (1, duration, dts, 0, [(len(content), duration, has_key_frame, cts)])
                 ]
               ),
               mdat(content)
@@ -288,18 +292,20 @@ async def main():
           ]))
           INITIALIZATION_SEGMENT_DISPATCHED = True
 
-        if hasIDR:
+        if begin_timestamp is None: continue
+
+        if has_IDR:
           if PARTIAL_BEGIN_TIMESTAMP is not None:
-            PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+            PART_DIFF = begin_timestamp - PARTIAL_BEGIN_TIMESTAMP
             if args.part_duration * ts.HZ < PART_DIFF:
-              PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+              PARTIAL_BEGIN_TIMESTAMP = int(begin_timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
               m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
-          PARTIAL_BEGIN_TIMESTAMP = timestamp
-          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, program_date_time)
+          PARTIAL_BEGIN_TIMESTAMP = begin_timestamp
+          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, begin_program_date_time)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
-          PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+          PART_DIFF = begin_timestamp - PARTIAL_BEGIN_TIMESTAMP
           if args.part_duration * ts.HZ <= PART_DIFF:
-            PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+            PARTIAL_BEGIN_TIMESTAMP = int(begin_timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
             m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
@@ -307,14 +313,14 @@ async def main():
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
 
         if LATEST_VIDEO_TIMESTAMP_90KHZ is not None:
-          TIMESTAMP_DIFF = (timestamp - LATEST_VIDEO_TIMESTAMP_90KHZ) / ts.HZ
+          TIMESTAMP_DIFF = (begin_timestamp - LATEST_VIDEO_TIMESTAMP_90KHZ) / ts.HZ
           TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
           if args.input is not sys.stdin.buffer:
             SLEEP_BEGIN = time.monotonic()
             await asyncio.sleep(max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE)))
             SLEEP_END = time.monotonic()
             LATEST_VIDEO_SLEEP_DIFFERENCE = (SLEEP_END - SLEEP_BEGIN) - max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE))
-        LATEST_VIDEO_TIMESTAMP_90KHZ = timestamp
+        LATEST_VIDEO_TIMESTAMP_90KHZ = begin_timestamp
         LATEST_VIDEO_MONOTONIC_TIME = time.monotonic()
 
     elif PID == H265_PID:
@@ -325,8 +331,8 @@ async def main():
         cts = (H265.pts() - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
         timestamp = ((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
         program_date_time = LATEST_PCR_DATETIME + timedelta(seconds=(((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
-        keyInSamples = False
-        samples = deque()
+        keyframe_in_samples = False
+        samples: deque[bytes] = deque()
 
         for ebsp in H265:
           nal_unit_type = (ebsp[0] >> 1) & 0x3f
@@ -340,16 +346,20 @@ async def main():
           elif nal_unit_type == 0x23 or nal_unit_type == 0x27: # AUD or SEI
             pass
           elif nal_unit_type == 19 or nal_unit_type == 20 or nal_unit_type == 21: # IDR_W_RADL, IDR_W_LP, CRA_NUT
-            keyInSamples = True
+            keyframe_in_samples = True
             samples.append(ebsp)
           else:
             samples.append(ebsp)
-        NEXT_H265 = (keyInSamples, samples, timestamp, cts) if samples else None
+        NEXT_H265 = (keyframe_in_samples, samples, timestamp, cts, program_date_time) if samples else None
 
-        hasIDR = False
+        has_IDR = False
+        begin_timestamp: int | None = None
+        begin_program_date_time: datetime | None = None
         if CURR_H265:
-          isKeyframe, samples, dts, cts = CURR_H265
-          hasIDR = isKeyframe
+          has_key_frame, samples, dts, cts, pdt = CURR_H265
+          has_IDR = has_key_frame
+          begin_timestamp = dts
+          begin_program_date_time = pdt
           duration = timestamp - dts
           content = bytearray()
           while samples:
@@ -360,7 +370,7 @@ async def main():
             b''.join([
               moof(0,
                 [
-                  (1, duration, dts, 0, [(len(content), duration, isKeyframe, cts)])
+                  (1, duration, dts, 0, [(len(content), duration, has_key_frame, cts)])
                 ]
               ),
               mdat(content)
@@ -385,18 +395,20 @@ async def main():
           ]))
           INITIALIZATION_SEGMENT_DISPATCHED = True
 
-        if hasIDR:
+        if begin_timestamp is None: continue
+
+        if has_IDR:
           if PARTIAL_BEGIN_TIMESTAMP is not None:
-            PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+            PART_DIFF = begin_timestamp - PARTIAL_BEGIN_TIMESTAMP
             if args.part_duration * ts.HZ < PART_DIFF:
-              PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+              PARTIAL_BEGIN_TIMESTAMP = int(begin_timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
               m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
-          PARTIAL_BEGIN_TIMESTAMP = timestamp
-          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, program_date_time)
+          PARTIAL_BEGIN_TIMESTAMP = begin_timestamp
+          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, begin_program_date_time)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
-          PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+          PART_DIFF = begin_timestamp - PARTIAL_BEGIN_TIMESTAMP
           if args.part_duration * ts.HZ <= PART_DIFF:
-            PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+            PARTIAL_BEGIN_TIMESTAMP = int(begin_timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
             m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
@@ -404,14 +416,14 @@ async def main():
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
 
         if LATEST_VIDEO_TIMESTAMP_90KHZ is not None:
-          TIMESTAMP_DIFF = (timestamp - LATEST_VIDEO_TIMESTAMP_90KHZ) / ts.HZ
+          TIMESTAMP_DIFF = (begin_timestamp - LATEST_VIDEO_TIMESTAMP_90KHZ) / ts.HZ
           TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
           if args.input is not sys.stdin.buffer:
             SLEEP_BEGIN = time.monotonic()
             await asyncio.sleep(max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE)))
             SLEEP_END = time.monotonic()
             LATEST_VIDEO_SLEEP_DIFFERENCE = (SLEEP_END - SLEEP_BEGIN) - max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE))
-        LATEST_VIDEO_TIMESTAMP_90KHZ = timestamp
+        LATEST_VIDEO_TIMESTAMP_90KHZ = begin_timestamp
         LATEST_VIDEO_MONOTONIC_TIME = time.monotonic()
 
     elif PID == AAC_PID:
