@@ -8,14 +8,16 @@ import sys
 import os
 import time
 
+from collections import deque
+
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from mpeg2ts import ts
 from mpeg2ts.packetize import packetize_section, packetize_pes
-from mpeg2ts.section import Section
 from mpeg2ts.pat import PATSection
 from mpeg2ts.pmt import PMTSection
+from mpeg2ts.scte import SpliceInfoSection, SpliceInsert, TimeSignal, SegmentationDescriptor
 from mpeg2ts.pes import PES
 from mpeg2ts.parser import SectionParser, PESParser
 
@@ -121,17 +123,26 @@ async def main():
   await loop.create_server(runner.server, '0.0.0.0', args.port)
 
   # setup reader
-  PAT_Parser = SectionParser(PATSection)
-  PMT_Parser = SectionParser(PMTSection)
-  H264_PES_Parser = PESParser(PES)
+  PAT_Parser: SectionParser[PATSection] = SectionParser(PATSection)
+  PMT_Parser: SectionParser[PMTSection] = SectionParser(PMTSection)
+  SCTE35_Parser: SectionParser[SpliceInfoSection] = SectionParser(SpliceInfoSection)
+  H264_PES_Parser: PESParser[PES] = PESParser(PES)
 
   LATEST_VIDEO_TIMESTAMP: int | None = None
-  LATEST_VIDEO_DATETIME: int | None = None
   LATEST_VIDEO_MONOTONIC_TIME: int | None = None
   LATEST_VIDEO_SLEEP_DIFFERENCE: int | None = 0
 
+  SCTE35_OUT_QUEUE: deque[tuple[str, datetime, datetime | None, dict]] = deque()
+  SCTE35_IN_QUEUE: deque[tuple[str, datetime]] = deque()
+
+  PCR_PID: int | None = None
+  LATEST_PCR_VALUE: int | None = None
+  LATEST_PCR_TIMESTAMP_90KHZ: int | None = 0
+  LATEST_PCR_DATETIME: datetime | None = None
+
   PMT_PID: int | None = None
   H264_PID: int | None = None
+  SCTE35_PID: int | None = None
   FIRST_IDR_DETECTED = False
 
   LAST_PAT: bytes | None = None
@@ -205,10 +216,13 @@ async def main():
       for PMT in PMT_Parser:
         if PMT.CRC32() != 0: continue
         LAST_PMT = PMT
+        PCR_PID = PMT.PCR_PID
 
         for stream_type, elementary_PID in PMT:
           if stream_type == 0x1b:
             H264_PID = elementary_PID
+          elif stream_type == 0x86:
+            SCTE35_PID = elementary_PID
 
         if FIRST_IDR_DETECTED:
           packets = packetize_section(PMT, False, False, PMT_PID, 0, PMT_CC)
@@ -218,11 +232,10 @@ async def main():
     elif PID == H264_PID:
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
-        hasIDR = False
+        if LATEST_PCR_VALUE is None: continue
+        has_IDR = False
         timestamp = H264.dts() if H264.has_dts() else H264.pts()
-        if LATEST_VIDEO_DATETIME is None: LATEST_VIDEO_DATETIME = datetime.now(timezone.utc)
-        TIMESTAMP_DIFF = ((timestamp - LATEST_VIDEO_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ if LATEST_VIDEO_TIMESTAMP is not None else 0
-        LATEST_VIDEO_DATETIME += timedelta(seconds=TIMESTAMP_DIFF)
+        program_date_time: datetime = LATEST_PCR_DATETIME + timedelta(seconds=(((timestamp - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
 
         data = H264.PES_packet_data()
         begin = 0
@@ -243,18 +256,30 @@ async def main():
 
           nal_unit_type = data[begin + 3] & 0x1f
           if nal_unit_type == 5:
-            hasIDR = True
+            has_IDR = True
             break
 
           begin += 4
 
-        if hasIDR:
+        if has_IDR:
+          while SCTE35_OUT_QUEUE:
+            if SCTE35_OUT_QUEUE[0][1] <= program_date_time:
+              id, start_date, end_date, attributes = SCTE35_OUT_QUEUE.popleft()
+              m3u8.open(id, program_date_time, end_date, **attributes)
+            else: break
+          while SCTE35_IN_QUEUE:
+            if SCTE35_IN_QUEUE[0][1] <= program_date_time:
+              id, end_date = SCTE35_IN_QUEUE.popleft()
+              m3u8.close(id, program_date_time)
+            else: break
+
+        if has_IDR:
           if not FIRST_IDR_DETECTED:
             if LAST_PAT and LAST_PMT:
               FIRST_IDR_DETECTED = True
             if FIRST_IDR_DETECTED:
               PARTIAL_BEGIN_TIMESTAMP = timestamp
-              m3u8.newSegment(PARTIAL_BEGIN_TIMESTAMP, True)
+              m3u8.newSegment(PARTIAL_BEGIN_TIMESTAMP, True, program_date_time)
               push_PAT_PMT(LAST_PAT, LAST_PMT)
           else:
             PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
@@ -262,7 +287,7 @@ async def main():
               PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
               m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
             PARTIAL_BEGIN_TIMESTAMP = timestamp
-            m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, LATEST_VIDEO_DATETIME)
+            m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, program_date_time)
             push_PAT_PMT(LAST_PAT, LAST_PMT)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
           PART_DIFF = (timestamp - PARTIAL_BEGIN_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE
@@ -286,8 +311,78 @@ async def main():
         LATEST_VIDEO_TIMESTAMP = timestamp
         LATEST_VIDEO_MONOTONIC_TIME = time.monotonic()
 
+    elif PID == SCTE35_PID:
+      m3u8.push(packet)
+      SCTE35_Parser.push(packet)
+      for SCTE35 in SCTE35_Parser:
+        if SCTE35.CRC32() != 0: continue
+
+        if SCTE35.splice_command_type == SpliceInfoSection.SPLICE_INSERT:
+          splice_insert: SpliceInsert = SCTE35.splice_command
+          id = str(splice_insert.splice_event_id)
+          if splice_insert.splice_event_cancel_indicator: continue
+          if not splice_insert.program_splice_flag: continue
+          if splice_insert.out_of_network_indicator:
+            attributes = { 'SCTE35-OUT': '0x' + ''.join([f'{b:02X}' for b in SCTE35[:]]) }
+            if splice_insert.splice_immediate_flag or not splice_insert.splice_time.time_specified_flag:
+              if LATEST_PCR_DATETIME is None: continue
+              start_date = LATEST_PCR_DATETIME
+
+              if splice_insert.duration_flag:
+                attributes['PLANNED-DURATION'] = str(splice_insert.break_duration.duration / ts.HZ)
+                if splice_insert.break_duration.auto_return:
+                  SCTE35_IN_QUEUE.append((id, start_date + timedelta(seconds=(splice_insert.break_duration.duration / ts.HZ))))
+              SCTE35_OUT_QUEUE.append((id, start_date, None, attributes))
+            else:
+              if LATEST_PCR_VALUE is None: continue
+              start_date = timedelta(seconds=(((splice_insert.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
+
+              if splice_insert.duration_flag:
+                attributes['PLANNED-DURATION'] = str(splice_insert.break_duration.duration / ts.HZ)
+                if splice_insert.break_duration.auto_return:
+                  SCTE35_IN_QUEUE.append((id, start_date + timedelta(seconds=(splice_insert.break_duration.duration / ts.HZ))))
+              SCTE35_OUT_QUEUE.append((id, start_date, None, attributes))
+          else:
+            if splice_insert.splice_immediate_flag or not splice_insert.splice_time.time_specified_flag:
+              if LATEST_PCR_DATETIME is None: continue
+              end_date = LATEST_PCR_DATETIME
+              SCTE35_IN_QUEUE.append((id, end_date))
+            else:
+              if LATEST_PCR_VALUE is None: continue
+              end_date = timedelta(seconds=(((splice_insert.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
+              SCTE35_IN_QUEUE.append((id, end_date))
+
+        elif SCTE35.splice_command_type == SpliceInfoSection.TIME_SIGNAL:
+          time_signal: TimeSignal = SCTE35.splice_command
+          if LATEST_PCR_VALUE is None: continue
+          specified_time = LATEST_PCR_DATETIME
+          if time_signal.splice_time.time_specified_flag:
+            specified_time = timedelta(seconds=(((time_signal.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
+          for descriptor in SCTE35.descriptors:
+            if descriptor.descriptor_tag != 0x02: continue
+            segmentation_descriptor: SegmentationDescriptor = descriptor
+            id = str(segmentation_descriptor.segmentation_event_id)
+            if segmentation_descriptor.segmentation_event_cancel_indicator: continue
+            if not segmentation_descriptor.program_segmentation_flag: continue
+
+            if segmentation_descriptor.segmentation_event_id in SegmentationDescriptor.ADVERTISEMENT_BEGIN:
+              attributes = { 'SCTE35-OUT': '0x' + ''.join([f'{b:02X}' for b in SCTE35[:]]) }
+              if segmentation_descriptor.segmentation_duration_flag:
+                attributes['PLANNED-DURATION'] = str(segmentation_descriptor.segmentation_duration / ts.HZ)
+              SCTE35_OUT_QUEUE.append((id, specified_time, None, attributes))
+            elif segmentation_descriptor.segmentation_type_id in SegmentationDescriptor.ADVERTISEMENT_END:
+              SCTE35_IN_QUEUE.append((id, specified_time))
+
     else:
       m3u8.push(packet)
+
+    if PID == PCR_PID and ts.has_pcr(packet):
+      PCR_VALUE = (ts.pcr(packet) - ts.HZ + ts.PCR_CYCLE) % ts.PCR_CYCLE
+      PCR_DIFF = ((PCR_VALUE - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) if LATEST_PCR_VALUE is not None else 0
+      LATEST_PCR_TIMESTAMP_90KHZ += PCR_DIFF
+      if LATEST_PCR_DATETIME is None: LATEST_PCR_DATETIME = datetime.now(timezone.utc) - timedelta(seconds=(1))
+      LATEST_PCR_DATETIME += timedelta(seconds=(PCR_DIFF / ts.HZ))
+      LATEST_PCR_VALUE = PCR_VALUE
 
 if __name__ == '__main__':
   asyncio.run(main())

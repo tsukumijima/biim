@@ -21,11 +21,14 @@ class Daterange:
     self.end_date = end_date
 
   def __str__(self) -> str:
-    duration = (self.end_date - self.start_date) if self.end_date else None
-    attributes = ','.join(([f'DURATION={duration.total_seconds()}'] if duration is not None else []) + [f'{attr}={value}' for attr, value in self.attributes.items() if duration is None or attr != "PLANNED-DURATION"])
+    duration = (self.end_date - self.start_date).total_seconds() if self.end_date else None
+    attributes = ','.join([f'{attr}={value}' for attr, value in self.attributes.items()])
     attributes = ',' + attributes if attributes else ''
 
-    return f'#EXT-X-DATERANGE:ID="{self.id}",START-DATE="{self.start_date.isoformat()}"{attributes}\n' + (f'#EXT-X-DATERANGE:ID="{self.id}",END-DATE="{self.end_date.isoformat()}"\n' if self.end_date is not None else '')
+    return ''.join([
+      f'#EXT-X-DATERANGE:ID="{self.id}",START-DATE="{self.start_date.isoformat()}"{attributes}\n',
+      (f'#EXT-X-DATERANGE:ID="{self.id}",START-DATE="{self.start_date.isoformat()}",END-DATE="{self.end_date.isoformat()},DURATION={duration}"\n' if self.end_date is not None else '')
+    ])
 
 class M3U8:
   def __init__(self, target_duration: int, part_target: float, list_size: int, hasInit: bool = False):
@@ -158,7 +161,7 @@ class M3U8:
   def manifest(self, skip: bool = False) -> str:
     m3u8 = ''
     m3u8 += f'#EXTM3U\n'
-    m3u8 += f'#EXT-X-VERSION:{9 if self.list_size is None else 6}\n'
+    m3u8 += f'#EXT-X-VERSION:{9}\n'
     m3u8 += f'#EXT-X-TARGETDURATION:{self.estimated_tartget_duration()}\n'
     m3u8 += f'#EXT-X-PART-INF:PART-TARGET={self.part_target:.06f}\n'
     if self.list_size is None:

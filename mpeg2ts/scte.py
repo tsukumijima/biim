@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 
+from typing import Type
+
 from util.bitstream import BitStream
 from mpeg2ts.section import Section
 
 class SpliceInfoSection(Section):
+  SPLICE_NULL = 0x00
+  SPLICE_SCHEDULE = 0x04
+  SPLICE_INSERT = 0x05
+  TIME_SIGNAL = 0x06
+  BANDWIDTH_RESERVATION = 0x07
+  PRIVATE_COMMAND = 0xFF
+
   def __init__(self, payload=b''):
     super().__init__(payload)
     bitstream = BitStream(payload[Section.BASIC_HEADER_SIZE:])
@@ -15,21 +24,21 @@ class SpliceInfoSection(Section):
     self.tier = bitstream.readBits(12)
     self.splice_command_length = bitstream.readBits(12)
     self.splice_command_type = bitstream.readBits(8)
-    if self.splice_command_type == 0x00:
+    if self.splice_command_type == SpliceInfoSection.SPLICE_NULL:
       self.splice_command = SpliceNull(bitstream)
-    elif self.splice_command_type == 0x04:
+    elif self.splice_command_type == SpliceInfoSection.SPLICE_SCHEDULE:
       self.splice_command = SpliceSchedule(bitstream)
-    elif self.splice_command_type == 0x05:
+    elif self.splice_command_type == SpliceInfoSection.SPLICE_INSERT:
       self.splice_command = SpliceInsert(bitstream)
-    elif self.splice_command_type == 0x06:
+    elif self.splice_command_type == SpliceInfoSection.TIME_SIGNAL:
       self.splice_command = TimeSignal(bitstream)
-    elif self.splice_command_type == 0x07:
+    elif self.splice_command_type == SpliceInfoSection.BANDWIDTH_RESERVATION:
       self.splice_command = BandwidthReservation(bitstream)
-    elif self.splice_command_type == 0xff:
+    elif self.splice_command_type == SpliceInfoSection.PRIVATE_COMMAND:
       self.splice_command = PrivateCommand(bitstream, self.splice_command_length)
     self.descriptor_loop_length = bitstream.readBits(16)
     descriptor_stream = bitstream.readBitStreamFromBytes(self.descriptor_loop_length)
-    self.descriptors = []
+    self.descriptors: list[Descriptor] = []
     while descriptor_stream:
       descriptor_tag = descriptor_stream.readBits(8)
       descriptor_stream.retainByte(descriptor_tag)
@@ -181,6 +190,56 @@ class DTMFDescriptor(Descriptor):
     ])
 
 class SegmentationDescriptor(Descriptor):
+  NOT_INDICATED = 0x00
+  CONTENT_IDENTIFICATION = 0x01
+  PROGRAM_START = 0x10
+  PROGRAM_END = 0x11
+  PROGRAM_EARLY_TERMINATION = 0x12
+  PROGRAM_BREAK_AWAY = 0x13
+  PROGRAM_RESUMPTION = 0x14
+  PROGRAM_RUNOVER_PLANNED = 0x15
+  PROGRAM_RUNOVER_UNPLANNED = 0x16
+  PROGRAM_OVERLAP_START = 0x17
+  PROGRAM_BLACKOUT_OVERRIDE = 0x18
+  PROGRAM_START_INPROGRESS = 0x19
+  CHAPTER_START = 0x20
+  CHAPTER_END = 0x21
+  BREAK_START = 0x22
+  BREAK_END = 0x23
+  OPENING_CREDIT_START = 0x24
+  OPENNIN_CREDIT_END = 0x25
+  CLOSING_CREDIT_START = 0x26
+  CLOSING_CREDIT_END = 0x27
+  PROVIDER_ADVERTISEMENT_START = 0x30
+  PROVIDER_ADVERTISEMENT_END = 0x31
+  DISTRIBUTOR_ADVERTISEMENT_START = 0x32
+  DISTRIBUTOR_ADVERTISEMENT_END = 0x33
+  PROVIDER_PLACEMENT_OPPORTUNITY_START = 0x34
+  PROVIDER_PLACEMENT_OPPORTUNITY_END = 0x35
+  DISTRIBUTOR_PLACEMENT_OPPORTUNITY_START = 0x36
+  DISTRIBUTOR_PLACEMENT_OPPORTUNITY_END = 0x37
+  PROVIDER_OVERLAY_PLACEMENT_OPPORTUNITY_START = 0x38
+  PROVIDER_OVERLAY_PLACEMENT_OPPORTUNITY_END = 0x39
+  DISTRIBUTOR_OVERLAY_PLACEMENT_OPPORTUNITY_START = 0x3A
+  DISTRIBUTOR_OVERLAY_PLACEMENT_OPPORTUNITY_END = 0x3B
+  UNSCHEDULED_EVENT_START = 0x40
+  UNSCHEDULED_EVENT_END = 0x41
+  NETWORK_START = 0x50
+  NETWORk_END = 0x51
+
+  ADVERTISEMENT_BEGIN = set([
+    PROVIDER_ADVERTISEMENT_START,
+    DISTRIBUTOR_ADVERTISEMENT_START,
+    PROVIDER_PLACEMENT_OPPORTUNITY_START,
+    DISTRIBUTOR_PLACEMENT_OPPORTUNITY_START
+  ])
+  ADVERTISEMENT_END = set([
+    PROVIDER_ADVERTISEMENT_END,
+    DISTRIBUTOR_ADVERTISEMENT_END,
+    PROVIDER_PLACEMENT_OPPORTUNITY_END,
+    DISTRIBUTOR_PLACEMENT_OPPORTUNITY_END
+  ])
+
   def __init__(self, bitstream):
     super().__init__(bitstream)
     self.segmentation_event_id = bitstream.readBits(32)
