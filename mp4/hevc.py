@@ -18,6 +18,7 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
   general_profile_idc = None
   general_profile_compatibility_flags = None
   general_constraint_indicator_flags = None
+  general_level_idc = None
   chroma_format_idc = None
   min_spatial_segmentation_idc = None
   bit_depth_luma_minus8 = None
@@ -37,6 +38,7 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
     nonlocal general_profile_idc
     nonlocal general_profile_compatibility_flags
     nonlocal general_constraint_indicator_flags
+    nonlocal general_level_idc
     nonlocal chroma_format_idc
     nonlocal min_spatial_segmentation_idc
     nonlocal bit_depth_luma_minus8
@@ -342,7 +344,7 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
     general_profile_compatibility_flags,
     general_constraint_indicator_flags,
     bytes([
-      0x3C,
+      general_level_idc,
       0xF0 | ((min_spatial_segmentation_idc & 0x0F00) >> 8),
       ((min_spatial_segmentation_idc & 0x00FF) >> 0),
       0xFC | (parallelismType & 0x03),
