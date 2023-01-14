@@ -507,7 +507,7 @@ async def main():
         if PMT.CRC32() != 0: continue
 
         PCR_PID = PMT.PCR_PID
-        for stream_type, elementary_PID in PMT:
+        for stream_type, elementary_PID, _ in PMT:
           if stream_type == 0x1b:
             H264_PID = elementary_PID
           elif stream_type == 0x24:
