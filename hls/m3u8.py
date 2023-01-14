@@ -31,11 +31,11 @@ class Daterange:
     ])
 
 class M3U8:
-  def __init__(self, target_duration: int, part_target: float, list_size: int, hasInit: bool = False):
+  def __init__(self, *, target_duration: int, part_target: float, window_size: int | None = None, hasInit: bool = False):
     self.media_sequence: int = 0
     self.target_duration: int = target_duration
     self.part_target: float = part_target
-    self.list_size: int = list_size
+    self.window_size: int = window_size
     self.hasInit: bool = hasInit
     self.dateranges: dict[str, Daterange] = dict()
     self.segments: deque[Segment] = deque()
@@ -80,10 +80,10 @@ class M3U8:
 
   def newSegment(self, beginPTS: int, isIFrame: bool = False, programDateTime: datetime | None = None) -> None:
     self.segments.append(Segment(beginPTS, isIFrame, programDateTime))
-    while self.list_size is not None and self.list_size < len(self.segments):
+    while self.window_size is not None and self.window_size < len(self.segments):
       self.outdated.appendleft(self.segments.popleft())
       self.media_sequence += 1
-    while self.list_size is not None and self.list_size < len(self.outdated):
+    while self.window_size is not None and self.window_size < len(self.outdated):
       self.outdated.pop()
 
   def newPartial(self, beginPTS: int, isIFrame: bool = False) -> None:
@@ -164,7 +164,7 @@ class M3U8:
     m3u8 += f'#EXT-X-VERSION:{9}\n'
     m3u8 += f'#EXT-X-TARGETDURATION:{self.estimated_tartget_duration()}\n'
     m3u8 += f'#EXT-X-PART-INF:PART-TARGET={self.part_target:.06f}\n'
-    if self.list_size is None:
+    if self.window_size is None:
       m3u8 += f'#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={(self.part_target * 3.001):.06f},CAN-SKIP-UNTIL={self.estimated_tartget_duration() * 6}\n'
       m3u8 += f'#EXT-X-PLAYLIST-TYPE:EVENT\n'
     else:

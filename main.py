@@ -31,14 +31,18 @@ async def main():
 
   parser.add_argument('-i', '--input', type=argparse.FileType('rb'), nargs='?', default=sys.stdin.buffer)
   parser.add_argument('-s', '--SID', type=int, nargs='?')
-  parser.add_argument('-l', '--list_size', type=int, nargs='?')
+  parser.add_argument('-w', '--window_size', type=int, nargs='?')
   parser.add_argument('-t', '--target_duration', type=int, nargs='?', default=1)
   parser.add_argument('-p', '--part_duration', type=float, nargs='?', default=0.1)
   parser.add_argument('--port', type=int, nargs='?', default=8080)
 
   args = parser.parse_args()
 
-  m3u8 = M3U8(args.target_duration, args.part_duration, args.list_size)
+  m3u8 = M3U8(
+    target_duration=args.target_duration,
+    part_target=args.part_duration,
+    window_size=args.window_size,
+  )
   async def playlist(request: web.Request) -> web.Response:
     nonlocal m3u8
     msn = request.query['_HLS_msn'] if '_HLS_msn' in request.query else None
