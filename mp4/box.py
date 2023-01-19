@@ -223,7 +223,6 @@ def moof(sequence_number: int, fragments: list[int, int, int, int, tuple[int, in
 
 def mfhd(sequence_number: int) -> bytes:
   return fullbox('mfhd', 0, 0, [
-    (0).to_bytes(4, byteorder='big'),
     (sequence_number).to_bytes(4, byteorder='big')
   ])
 
