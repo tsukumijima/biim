@@ -422,14 +422,14 @@ async def main():
 
         if has_IDR:
           while SCTE35_OUT_QUEUE:
-            if SCTE35_OUT_QUEUE[0] <= begin_program_date_time:
+            if SCTE35_OUT_QUEUE[0][1] <= begin_program_date_time:
               id, start_date, end_date, attributes = SCTE35_OUT_QUEUE.popleft()
               m3u8.open(id, begin_program_date_time, end_date, **attributes)
             else: break
           while SCTE35_IN_QUEUE:
-            if SCTE35_IN_QUEUE[0] <= begin_program_date_time:
+            if SCTE35_IN_QUEUE[0][1] <= begin_program_date_time:
               id, end_date = SCTE35_IN_QUEUE.popleft()
-              m3u8.close(id, end_date)
+              m3u8.close(id, begin_program_date_time)
             else: break
 
         if has_IDR:
