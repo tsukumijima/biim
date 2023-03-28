@@ -6,17 +6,17 @@ from aiohttp import web
 import argparse
 import sys
 import os
+import time
 
 from collections import deque
 
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from mpeg2ts import ts
-from mpeg2ts.packetize import packetize_section, packetize_pes
-from mpeg2ts.section import Section
 from mpeg2ts.pat import PATSection
 from mpeg2ts.pmt import PMTSection
+from mpeg2ts.scte import SpliceInfoSection, SpliceInsert, TimeSignal, SegmentationDescriptor
 from mpeg2ts.pes import PES
 from mpeg2ts.h264 import H264PES
 from mpeg2ts.h265 import H265PES
@@ -28,6 +28,10 @@ from mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat, emsg
 from mp4.avc import avcTrack
 from mp4.hevc import hevcTrack
 from mp4.mp4a import mp4aTrack
+
+from id3.priv import PRIV
+
+from util.reader import BufferingAsyncReader
 
 SAMPLING_FREQUENCY = {
   0x00: 96000,
@@ -51,49 +55,58 @@ async def main():
 
   parser.add_argument('-i', '--input', type=argparse.FileType('rb'), nargs='?', default=sys.stdin.buffer)
   parser.add_argument('-s', '--SID', type=int, nargs='?')
-  parser.add_argument('-l', '--list_size', type=int, nargs='?')
+  parser.add_argument('-w', '--window_size', type=int, nargs='?')
   parser.add_argument('-t', '--target_duration', type=int, nargs='?', default=1)
   parser.add_argument('-p', '--part_duration', type=float, nargs='?', default=0.1)
   parser.add_argument('--port', type=int, nargs='?', default=8080)
 
   args = parser.parse_args()
 
-  m3u8 = M3U8(args.target_duration, args.part_duration, args.list_size, True)
-  init = asyncio.Future()
+  m3u8 = M3U8(
+    target_duration=args.target_duration,
+    part_target=args.part_duration,
+    window_size=args.window_size,
+    hasInit=True
+  )
+  init: asyncio.Future[bytes] = asyncio.Future()
 
-  async def playlist(request):
+  async def playlist(request: web.Request) -> web.Response:
     nonlocal m3u8
     msn = request.query['_HLS_msn'] if '_HLS_msn' in request.query else None
     part = request.query['_HLS_part'] if '_HLS_part' in request.query else None
+    skip = request.query['_HLS_skip'] == 'YES' if '_HLS_skip' in request.query else None
 
     if msn is None and part is None:
       future = m3u8.plain()
       if future is None:
-        return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="application/x-mpegURL")
+        return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="application/x-mpegURL")
 
       result = await future
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, text=result, content_type="application/x-mpegURL")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, text=result, content_type="application/x-mpegURL")
     else:
+      if msn is None:
+        return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="application/x-mpegURL")
       msn = int(msn)
       if part is None: part = 0
       part = int(part)
-      future = m3u8.blocking(msn, part)
+      future = m3u8.blocking(msn, part, skip)
       if future is None:
-        return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="application/x-mpegURL")
+        return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="application/x-mpegURL")
 
       result = await future
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, text=result, content_type="application/x-mpegURL")
-  async def segment(request):
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000'}, text=result, content_type="application/x-mpegURL")
+  async def segment(request: web.Request) -> web.Response | web.StreamResponse:
     nonlocal m3u8
     msn = request.query['msn'] if 'msn' in request.query else None
 
-    if msn is None: msn = 0
+    if msn is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
     msn = int(msn)
     queue = await m3u8.segment(msn)
     if queue is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
 
-    response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Content-Type': 'video/mp4'}, status=200)
+    response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000', 'Content-Type': 'video/mp4'}, status=200)
     await response.prepare(request)
 
     while True:
@@ -103,20 +116,22 @@ async def main():
 
     await response.write_eof()
     return response
-  async def partial(request):
+  async def partial(request: web.Request) -> web.Response | web.StreamResponse:
     nonlocal m3u8
     msn = request.query['msn'] if 'msn' in request.query else None
     part = request.query['part'] if 'part' in request.query else None
 
-    if msn is None: msn = 0
+    if msn is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
     msn = int(msn)
-    if part is None: part = 0
+    if part is None:
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
     part = int(part)
     queue = await m3u8.partial(msn, part)
     if queue is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
 
-    response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Content-Type': 'video/mp4'}, status=200)
+    response = web.StreamResponse(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000', 'Content-Type': 'video/mp4'}, status=200)
     await response.prepare(request)
 
     while True:
@@ -126,12 +141,12 @@ async def main():
 
     await response.write_eof()
     return response
-  async def initalization(request):
+  async def initalization(request: web.Request) -> web.Response:
     if init is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
+      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp4")
 
     body = await asyncio.shield(init)
-    return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/mp4")
+    return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000'}, body=body, content_type="video/mp4")
 
   # setup aiohttp
   app = web.Application()
@@ -146,45 +161,58 @@ async def main():
   await loop.create_server(runner.server, '0.0.0.0', args.port)
 
   # setup reader
-  PAT_Parser = SectionParser(PATSection)
-  PMT_Parser = SectionParser(PMTSection)
-  AAC_PES_Parser = PESParser(PES)
-  H264_PES_Parser = PESParser(H264PES)
-  H265_PES_Parser = PESParser(H265PES)
-  ID3_PES_Parser = PESParser(PES)
+  PAT_Parser: SectionParser[PATSection] = SectionParser(PATSection)
+  PMT_Parser: SectionParser[PMTSection] = SectionParser(PMTSection)
+  AAC_PES_Parser: PESParser[PES] = PESParser(PES)
+  H264_PES_Parser: PESParser[H264PES] = PESParser(H264PES)
+  H265_PES_Parser: PESParser[H265PES] = PESParser(H265PES)
+  ID3_PES_Parser: PESParser[PES] = PESParser(PES)
+  SCTE35_Parser: SectionParser[SpliceInfoSection] = SectionParser(SpliceInfoSection)
 
-  PCR_PID = None
-  LATEST_PCR_VALUE = None
-  LATEST_PCR_TIMESTAMP_90KHZ = 0
+  PCR_PID: int | None = None
+  LATEST_PCR_VALUE: int | None = None
+  LATEST_PCR_TIMESTAMP_90KHZ: int | None = 0
+  LATEST_PCR_DATETIME: datetime | None = None
 
-  PMT_PID = None
-  AAC_PID = None
-  H264_PID = None
-  H265_PID = None
-  ID3_PID = None
+  LATEST_VIDEO_TIMESTAMP_90KHZ: int | None = None
+  LATEST_VIDEO_MONOTONIC_TIME: int | None = None
+  LATEST_VIDEO_SLEEP_DIFFERENCE: int = 0
 
-  AAC_CONFIG = None
+  PMT_PID: int | None = None
+  AAC_PID: int | None = None
+  H264_PID: int | None = None
+  H265_PID: int | None = None
+  ID3_PID: int | None = None
+  SCTE35_PID: int | None = None
 
-  CURR_H264 = None
-  NEXT_H264 = None
-  CURR_H265 = None
-  NEXT_H265 = None
+  AAC_CONFIG: tuple[bytes, int, int] = None
 
-  H264_FRAGMENTS = deque()
-  H265_FRAGMENTS = deque()
-  AAC_FRAGMENTS = deque()
-  EMSG_FRAGMENTS = deque()
+  CURR_H264: tuple[bool, deque[bytes], int, int, datetime] | None= None
+  NEXT_H264: tuple[bool, deque[bytes], int, int, datetime] | None = None
+  CURR_H265: tuple[bool, deque[bytes], int, int, datetime] | None = None
+  NEXT_H265: tuple[bool, deque[bytes], int, int, datetime] | None = None
 
-  VPS = None
-  SPS = None
-  PPS = None
+  SCTE35_OUT_QUEUE: deque[tuple[str, datetime, datetime | None, dict]] = deque()
+  SCTE35_IN_QUEUE: deque[tuple[str, datetime]] = deque()
+
+  H264_FRAGMENTS: deque[bytes] = deque()
+  H265_FRAGMENTS: deque[bytes] = deque()
+  AAC_FRAGMENTS: deque[bytes] = deque()
+  EMSG_FRAGMENTS: deque[bytes] = deque()
+
+  VPS: bytes | None = None
+  SPS: bytes | None = None
+  PPS: bytes | None = None
 
   INITIALIZATION_SEGMENT_DISPATCHED = False
-  PARTIAL_BEGIN_TIMESTAMP = None
+  PARTIAL_BEGIN_TIMESTAMP: int | None = None
 
-  reader = asyncio.StreamReader()
-  protocol = asyncio.StreamReaderProtocol(reader)
-  await loop.connect_read_pipe(lambda: protocol, args.input)
+  if args.input is not sys.stdin.buffer or os.name == 'nt':
+    reader = BufferingAsyncReader(args.input, ts.PACKET_SIZE * 16)
+  else:
+    reader = asyncio.StreamReader()
+    protocol = asyncio.StreamReaderProtocol(reader)
+    await loop.connect_read_pipe(lambda: protocol, args.input)
 
   while True:
     isEOF = False
@@ -209,9 +237,11 @@ async def main():
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
         if LATEST_PCR_VALUE is None: continue
-        timestamp = (((H264.dts() if H264.has_dts() else H264.pts()) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
-        cts = (H264.pts() - (H264.dts() if H264.has_dts() else H264.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
-        keyInSamples = False
+        dts = H264.dts() if H264.has_dts() else H264.pts()
+        cts = (H264.pts() - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
+        timestamp = ((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+        program_date_time: datetime = LATEST_PCR_DATETIME + timedelta(seconds=(((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
+        keyframe_in_samples = False
         samples = deque()
 
         for ebsp in H264:
@@ -224,16 +254,20 @@ async def main():
           elif nal_unit_type == 0x09 or nal_unit_type == 0x06: # AUD or SEI
             pass
           elif nal_unit_type == 0x05:
-            keyInSamples = True
+            keyframe_in_samples = True
             samples.append(ebsp)
           else:
             samples.append(ebsp)
-        NEXT_H264 = (keyInSamples, samples, timestamp, cts) if samples else None
+        NEXT_H264 = (keyframe_in_samples, samples, timestamp, cts, program_date_time) if samples else None
 
-        hasIDR = False
+        has_IDR = False
+        begin_timestamp: int | None = None
+        begin_program_date_time: datetime | None = None
         if CURR_H264:
-          isKeyframe, samples, dts, cts = CURR_H264
-          hasIDR = isKeyframe
+          has_key_frame, samples, dts, cts, pdt = CURR_H264
+          has_IDR = has_key_frame
+          begin_timestamp = dts
+          begin_program_date_time = pdt
           duration = timestamp - dts
           content = bytearray()
           while samples:
@@ -244,7 +278,7 @@ async def main():
             b''.join([
               moof(0,
                 [
-                  (1, duration, dts, 0, [(len(content), duration, isKeyframe, cts)])
+                  (1, duration, dts, 0, [(len(content), duration, has_key_frame, cts)])
                 ]
               ),
               mdat(content)
@@ -269,32 +303,59 @@ async def main():
           ]))
           INITIALIZATION_SEGMENT_DISPATCHED = True
 
-        if hasIDR:
+        if begin_timestamp is None: continue
+
+        if has_IDR:
+          while SCTE35_OUT_QUEUE:
+            if SCTE35_OUT_QUEUE[0][1] <= begin_program_date_time:
+              id, start_date, end_date, attributes = SCTE35_OUT_QUEUE.popleft()
+              m3u8.open(id, begin_program_date_time, end_date, **attributes)
+            else: break
+          while SCTE35_IN_QUEUE:
+            if SCTE35_IN_QUEUE[0][1] <= begin_program_date_time:
+              id, end_date = SCTE35_IN_QUEUE.popleft()
+              m3u8.close(id, begin_program_date_time)
+            else: break
+
+        if has_IDR:
           if PARTIAL_BEGIN_TIMESTAMP is not None:
-            PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+            PART_DIFF = begin_timestamp - PARTIAL_BEGIN_TIMESTAMP
             if args.part_duration * ts.HZ < PART_DIFF:
-              PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+              PARTIAL_BEGIN_TIMESTAMP = int(begin_timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
               m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
-          PARTIAL_BEGIN_TIMESTAMP = timestamp
-          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
+          PARTIAL_BEGIN_TIMESTAMP = begin_timestamp
+          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, begin_program_date_time)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
-          PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+          PART_DIFF = begin_timestamp - PARTIAL_BEGIN_TIMESTAMP
           if args.part_duration * ts.HZ <= PART_DIFF:
-            PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+            PARTIAL_BEGIN_TIMESTAMP = int(begin_timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
             m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
         while (H264_FRAGMENTS): m3u8.push(H264_FRAGMENTS.popleft())
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
 
+        if LATEST_VIDEO_TIMESTAMP_90KHZ is not None:
+          TIMESTAMP_DIFF = (begin_timestamp - LATEST_VIDEO_TIMESTAMP_90KHZ) / ts.HZ
+          TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
+          if args.input is not sys.stdin.buffer:
+            SLEEP_BEGIN = time.monotonic()
+            await asyncio.sleep(max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE)))
+            SLEEP_END = time.monotonic()
+            LATEST_VIDEO_SLEEP_DIFFERENCE = (SLEEP_END - SLEEP_BEGIN) - max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE))
+        LATEST_VIDEO_TIMESTAMP_90KHZ = begin_timestamp
+        LATEST_VIDEO_MONOTONIC_TIME = time.monotonic()
+
     elif PID == H265_PID:
       H265_PES_Parser.push(packet)
       for H265 in H265_PES_Parser:
         if LATEST_PCR_VALUE is None: continue
-        timestamp = (((H265.dts() if H265.has_dts() else  H265.pts()) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
-        cts = (H265.pts() - (H265.dts() if H265.has_dts() else  H265.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
-        keyInSamples = False
-        samples = deque()
+        dts = H265.dts() if H265.has_dts() else H265.pts()
+        cts = (H265.pts() - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
+        timestamp = ((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+        program_date_time: datetime = LATEST_PCR_DATETIME + timedelta(seconds=(((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
+        keyframe_in_samples = False
+        samples: deque[bytes] = deque()
 
         for ebsp in H265:
           nal_unit_type = (ebsp[0] >> 1) & 0x3f
@@ -308,16 +369,20 @@ async def main():
           elif nal_unit_type == 0x23 or nal_unit_type == 0x27: # AUD or SEI
             pass
           elif nal_unit_type == 19 or nal_unit_type == 20 or nal_unit_type == 21: # IDR_W_RADL, IDR_W_LP, CRA_NUT
-            keyInSamples = True
+            keyframe_in_samples = True
             samples.append(ebsp)
           else:
             samples.append(ebsp)
-        NEXT_H265 = (keyInSamples, samples, timestamp, cts) if samples else None
+        NEXT_H265 = (keyframe_in_samples, samples, timestamp, cts, program_date_time) if samples else None
 
-        hasIDR = False
+        has_IDR = False
+        begin_timestamp: int | None = None
+        begin_program_date_time: datetime | None = None
         if CURR_H265:
-          isKeyframe, samples, dts, cts = CURR_H265
-          hasIDR = isKeyframe
+          has_key_frame, samples, dts, cts, pdt = CURR_H265
+          has_IDR = has_key_frame
+          begin_timestamp = dts
+          begin_program_date_time = pdt
           duration = timestamp - dts
           content = bytearray()
           while samples:
@@ -328,7 +393,7 @@ async def main():
             b''.join([
               moof(0,
                 [
-                  (1, duration, dts, 0, [(len(content), duration, isKeyframe, cts)])
+                  (1, duration, dts, 0, [(len(content), duration, has_key_frame, cts)])
                 ]
               ),
               mdat(content)
@@ -353,23 +418,48 @@ async def main():
           ]))
           INITIALIZATION_SEGMENT_DISPATCHED = True
 
-        if hasIDR:
+        if begin_timestamp is None: continue
+
+        if has_IDR:
+          while SCTE35_OUT_QUEUE:
+            if SCTE35_OUT_QUEUE[0][1] <= begin_program_date_time:
+              id, start_date, end_date, attributes = SCTE35_OUT_QUEUE.popleft()
+              m3u8.open(id, begin_program_date_time, end_date, **attributes)
+            else: break
+          while SCTE35_IN_QUEUE:
+            if SCTE35_IN_QUEUE[0][1] <= begin_program_date_time:
+              id, end_date = SCTE35_IN_QUEUE.popleft()
+              m3u8.close(id, begin_program_date_time)
+            else: break
+
+        if has_IDR:
           if PARTIAL_BEGIN_TIMESTAMP is not None:
-            PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+            PART_DIFF = begin_timestamp - PARTIAL_BEGIN_TIMESTAMP
             if args.part_duration * ts.HZ < PART_DIFF:
-              PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+              PARTIAL_BEGIN_TIMESTAMP = int(begin_timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
               m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP, False)
-          PARTIAL_BEGIN_TIMESTAMP = timestamp
-          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True)
+          PARTIAL_BEGIN_TIMESTAMP = begin_timestamp
+          m3u8.continuousSegment(PARTIAL_BEGIN_TIMESTAMP, True, begin_program_date_time)
         elif PARTIAL_BEGIN_TIMESTAMP is not None:
-          PART_DIFF = timestamp - PARTIAL_BEGIN_TIMESTAMP
+          PART_DIFF = begin_timestamp - PARTIAL_BEGIN_TIMESTAMP
           if args.part_duration * ts.HZ <= PART_DIFF:
-            PARTIAL_BEGIN_TIMESTAMP = int(timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
+            PARTIAL_BEGIN_TIMESTAMP = int(begin_timestamp - max(0, PART_DIFF - args.part_duration * ts.HZ))
             m3u8.continuousPartial(PARTIAL_BEGIN_TIMESTAMP)
 
         while (EMSG_FRAGMENTS): m3u8.push(EMSG_FRAGMENTS.popleft())
         while (H265_FRAGMENTS): m3u8.push(H265_FRAGMENTS.popleft())
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
+
+        if LATEST_VIDEO_TIMESTAMP_90KHZ is not None:
+          TIMESTAMP_DIFF = (begin_timestamp - LATEST_VIDEO_TIMESTAMP_90KHZ) / ts.HZ
+          TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
+          if args.input is not sys.stdin.buffer:
+            SLEEP_BEGIN = time.monotonic()
+            await asyncio.sleep(max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE)))
+            SLEEP_END = time.monotonic()
+            LATEST_VIDEO_SLEEP_DIFFERENCE = (SLEEP_END - SLEEP_BEGIN) - max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE))
+        LATEST_VIDEO_TIMESTAMP_90KHZ = begin_timestamp
+        LATEST_VIDEO_MONOTONIC_TIME = time.monotonic()
 
     elif PID == AAC_PID:
       AAC_PES_Parser.push(packet)
@@ -379,6 +469,7 @@ async def main():
         begin, ADTS_AAC = 0, AAC_PES.PES_packet_data()
         length = len(ADTS_AAC)
         while begin < length:
+          protection = (ADTS_AAC[begin + 1] & 0b00000001) == 0
           profile = ((ADTS_AAC[begin + 2] & 0b11000000) >> 6)
           samplingFrequencyIndex = ((ADTS_AAC[begin + 2] & 0b00111100) >> 2)
           channelConfiguration = ((ADTS_AAC[begin + 2] & 0b00000001) << 2) | ((ADTS_AAC[begin + 3] & 0b11000000) >> 6)
@@ -393,10 +484,10 @@ async def main():
             b''.join([
               moof(0,
                 [
-                  (2, duration, timestamp, 0, [(frameLength - 7, duration, False, 0)])
+                  (2, duration, timestamp, 0, [(frameLength - (9 if protection else 7), duration, False, 0)])
                 ]
               ),
-              mdat(bytes(ADTS_AAC[begin + 7: begin + frameLength]))
+              mdat(bytes(ADTS_AAC[begin + (9 if protection else 7): begin + frameLength]))
             ])
           )
           timestamp += duration
@@ -406,7 +497,6 @@ async def main():
       PAT_Parser.push(packet)
       for PAT in PAT_Parser:
         if PAT.CRC32() != 0: continue
-        LAST_PAT = PAT
 
         for program_number, program_map_PID in PAT:
           if program_number == 0: continue
@@ -420,10 +510,9 @@ async def main():
       PMT_Parser.push(packet)
       for PMT in PMT_Parser:
         if PMT.CRC32() != 0: continue
-        LAST_PMT = PMT
 
         PCR_PID = PMT.PCR_PID
-        for stream_type, elementary_PID in PMT:
+        for stream_type, elementary_PID, _ in PMT:
           if stream_type == 0x1b:
             H264_PID = elementary_PID
           elif stream_type == 0x24:
@@ -432,6 +521,8 @@ async def main():
             AAC_PID = elementary_PID
           elif stream_type == 0x15:
             ID3_PID = elementary_PID
+          elif stream_type == 0x86:
+            SCTE35_PID = elementary_PID
 
     elif PID == ID3_PID:
       ID3_PES_Parser.push(packet)
@@ -441,13 +532,76 @@ async def main():
         ID3 = ID3_PES.PES_packet_data()
         EMSG_FRAGMENTS.append(emsg(ts.HZ, timestamp, None, 'https://aomedia.org/emsg/ID3', ID3))
 
+    elif PID == SCTE35_PID:
+      SCTE35_Parser.push(packet)
+      for SCTE35 in SCTE35_Parser:
+        if SCTE35.CRC32() != 0: continue
+
+        if SCTE35.splice_command_type == SpliceInfoSection.SPLICE_INSERT:
+          splice_insert: SpliceInsert = SCTE35.splice_command
+          id = str(splice_insert.splice_event_id)
+          if splice_insert.splice_event_cancel_indicator: continue
+          if not splice_insert.program_splice_flag: continue
+          if splice_insert.out_of_network_indicator:
+            attributes = { 'SCTE35-OUT': '0x' + ''.join([f'{b:02X}' for b in SCTE35[:]]) }
+            if splice_insert.splice_immediate_flag or not splice_insert.splice_time.time_specified_flag:
+              if LATEST_PCR_DATETIME is None: continue
+              start_date = LATEST_PCR_DATETIME
+
+              if splice_insert.duration_flag:
+                attributes['PLANNED-DURATION'] = str(splice_insert.break_duration.duration / ts.HZ)
+                if splice_insert.break_duration.auto_return:
+                  SCTE35_IN_QUEUE.append((id, start_date + timedelta(seconds=(splice_insert.break_duration.duration / ts.HZ))))
+              SCTE35_OUT_QUEUE.append((id, start_date, None, attributes))
+            else:
+              if LATEST_PCR_VALUE is None: continue
+              start_date = timedelta(seconds=(((splice_insert.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
+
+              if splice_insert.duration_flag:
+                attributes['PLANNED-DURATION'] = str(splice_insert.break_duration.duration / ts.HZ)
+                if splice_insert.break_duration.auto_return:
+                  SCTE35_IN_QUEUE.append((id, start_date + timedelta(seconds=(splice_insert.break_duration.duration / ts.HZ))))
+              SCTE35_OUT_QUEUE.append((id, start_date, None, attributes))
+          else:
+            if splice_insert.splice_immediate_flag or not splice_insert.splice_time.time_specified_flag:
+              if LATEST_PCR_DATETIME is None: continue
+              end_date = LATEST_PCR_DATETIME
+              SCTE35_IN_QUEUE.append((id, end_date))
+            else:
+              if LATEST_PCR_VALUE is None: continue
+              end_date = timedelta(seconds=(((splice_insert.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
+              SCTE35_IN_QUEUE.append((id, end_date))
+
+        elif SCTE35.splice_command_type == SpliceInfoSection.TIME_SIGNAL:
+          time_signal: TimeSignal = SCTE35.splice_command
+          if LATEST_PCR_VALUE is None: continue
+          specified_time = LATEST_PCR_DATETIME
+          if time_signal.splice_time.time_specified_flag:
+            specified_time = timedelta(seconds=(((time_signal.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
+          for descriptor in SCTE35.descriptors:
+            if descriptor.descriptor_tag != 0x02: continue
+            segmentation_descriptor: SegmentationDescriptor = descriptor
+            id = str(segmentation_descriptor.segmentation_event_id)
+            if segmentation_descriptor.segmentation_event_cancel_indicator: continue
+            if not segmentation_descriptor.program_segmentation_flag: continue
+
+            if segmentation_descriptor.segmentation_event_id in SegmentationDescriptor.ADVERTISEMENT_BEGIN:
+              attributes = { 'SCTE35-OUT': '0x' + ''.join([f'{b:02X}' for b in SCTE35[:]]) }
+              if segmentation_descriptor.segmentation_duration_flag:
+                attributes['PLANNED-DURATION'] = str(segmentation_descriptor.segmentation_duration / ts.HZ)
+              SCTE35_OUT_QUEUE.append((id, specified_time, None, attributes))
+            elif segmentation_descriptor.segmentation_type_id in SegmentationDescriptor.ADVERTISEMENT_END:
+              SCTE35_IN_QUEUE.append((id, specified_time))
+
     else:
       pass
 
     if PID == PCR_PID and ts.has_pcr(packet):
       PCR_VALUE = (ts.pcr(packet) - ts.HZ + ts.PCR_CYCLE) % ts.PCR_CYCLE
-      if LATEST_PCR_VALUE is not None:
-        LATEST_PCR_TIMESTAMP_90KHZ += (PCR_VALUE - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE
+      PCR_DIFF = ((PCR_VALUE - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) if LATEST_PCR_VALUE is not None else 0
+      LATEST_PCR_TIMESTAMP_90KHZ += PCR_DIFF
+      if LATEST_PCR_DATETIME is None: LATEST_PCR_DATETIME = datetime.now(timezone.utc) - timedelta(seconds=(1))
+      LATEST_PCR_DATETIME += timedelta(seconds=(PCR_DIFF / ts.HZ))
       LATEST_PCR_VALUE = PCR_VALUE
 
 if __name__ == '__main__':

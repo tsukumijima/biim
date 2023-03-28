@@ -1,41 +1,43 @@
 #!/usr/bin/env python3
 
+from typing import Any
+
 class Section:
   BASIC_HEADER_SIZE = 3
   EXTENDED_HEADER_SIZE = 8
   CRC_SIZE = 4
 
-  def __init__(self, payload = b''):
+  def __init__(self, payload: bytes | bytearray | memoryview = b''):
     self.payload = memoryview(payload)
 
-  def __getitem__(self, item):
+  def __getitem__(self, item: Any) -> Any:
     return self.payload[item]
 
-  def __len__(self):
+  def __len__(self) -> int:
     return len(self.payload)
 
-  def table_id(self):
+  def table_id(self) -> int:
     return self.payload[0]
 
-  def section_length(self):
+  def section_length(self) -> int:
     return ((self.payload[1] & 0x0F) << 8) | self.payload[2]
 
-  def table_id_extension(self):
+  def table_id_extension(self) -> int:
     return (self.payload[3] << 8) | self.payload[4]
 
-  def version_number(self):
+  def version_number(self) -> int:
     return (self.payload[5] & 0x3E) >> 1
 
-  def current_next_indicator(self):
+  def current_next_indicator(self) -> bool:
     return (self.payload[5] & 0x01) != 0
 
-  def section_number(self):
+  def section_number(self) -> int:
     return self.payload[6]
 
-  def last_section_number(self):
+  def last_section_number(self) -> int:
     return self.payload[7]
 
-  def CRC32(self):
+  def CRC32(self) -> int:
     crc = 0xFFFFFFFF
     for byte in self.payload:
       for index in range(7, -1, -1):

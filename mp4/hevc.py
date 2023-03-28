@@ -1,9 +1,9 @@
-from mp4.bitstream import BitStream
 from mp4.box import trak, tkhd, mdia, mdhd, hdlr, minf, vmhd, dinf, stbl, stsd, hvc1
+from util.bitstream import BitStream
 
 escapes = set([0x00, 0x01, 0x02, 0x03])
 
-def ebsp2rbsp(data):
+def ebsp2rbsp(data: bytes | bytearray | memoryview) -> bytes:
   rbsp = bytearray(data[:2])
   length = len(data)
   for index in range(2, length):
@@ -12,12 +12,13 @@ def ebsp2rbsp(data):
     rbsp.append(data[index])
   return bytes(rbsp)
 
-def hevcTrack(trackId, timescale, vps, sps, pps):
+def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview, sps: bytes | bytearray | memoryview, pps: bytes | bytearray | memoryview) -> bytes:
   general_profile_space = None
   general_tier_flag = None
   general_profile_idc = None
   general_profile_compatibility_flags = None
   general_constraint_indicator_flags = None
+  general_level_idc = None
   chroma_format_idc = None
   min_spatial_segmentation_idc = None
   bit_depth_luma_minus8 = None
@@ -37,6 +38,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
     nonlocal general_profile_idc
     nonlocal general_profile_compatibility_flags
     nonlocal general_constraint_indicator_flags
+    nonlocal general_level_idc
     nonlocal chroma_format_idc
     nonlocal min_spatial_segmentation_idc
     nonlocal bit_depth_luma_minus8
@@ -177,7 +179,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
         aspect_ratio_idc = stream.readByte()
         sar_w_table = [1, 12, 10, 16, 40, 24, 20, 32, 80, 18, 15, 64, 160, 4, 3, 2]
         sar_h_table = [1, 11, 11, 11, 33, 11, 11, 11, 33, 11, 11, 33,  99, 3, 2, 1]
-        if aspect_ratio_idc > 0 and aspect_ratio_idc < 16:
+        if 0 < aspect_ratio_idc and aspect_ratio_idc <= 16:
           sar_width = sar_w_table[aspect_ratio_idc - 1]
           sar_height = sar_h_table[aspect_ratio_idc - 1]
         elif aspect_ratio_idc == 255:
@@ -342,7 +344,7 @@ def hevcTrack(trackId, timescale, vps, sps, pps):
     general_profile_compatibility_flags,
     general_constraint_indicator_flags,
     bytes([
-      0x3C,
+      general_level_idc,
       0xF0 | ((min_spatial_segmentation_idc & 0x0F00) >> 8),
       ((min_spatial_segmentation_idc & 0x00FF) >> 0),
       0xFC | (parallelismType & 0x03),
