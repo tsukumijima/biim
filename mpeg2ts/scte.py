@@ -138,7 +138,7 @@ class BandwidthReservation:
 
 class PrivateCommand:
   def __init__(self, bitstream, length):
-    self.identifier = self.readBits(32)
+    self.identifier = bitstream.readBits(32)
     self.private_byte = bytes([
       bitstream.readBits(8)
       for _ in range(length - 4)
@@ -152,7 +152,8 @@ class BreakDuration:
 
 class SpliceTime:
   def __init__(self, bitstream):
-    self.time_specified_flag = bitstream.readBool()
+    self.time_specified_flag: bool = bitstream.readBool()
+    self.pts_time: int | None
     if self.time_specified_flag:
       bitstream.readBits(6)
       self.pts_time = bitstream.readBits(33)

@@ -1,3 +1,4 @@
+from typing import cast
 
 composition_matrix = bytes([
   0x00, 0x01, 0x00, 0x00,
@@ -13,10 +14,10 @@ composition_matrix = bytes([
 
 def box(fourcc: str, data: list[bytes | bytearray | memoryview] | bytes | bytearray | memoryview = b'') -> bytes:
   total = sum(map(len, data)) if type(data) is list else len(data)
-  return (8 + total).to_bytes(4, byteorder='big') + fourcc.encode('ascii') + (b''.join(data) if type(data) is list else data)
+  return (8 + total).to_bytes(4, byteorder='big') + fourcc.encode('ascii') + (b''.join(data) if type(data) is list else cast(bytes | bytearray | memoryview, data))
 
 def fullbox(fourcc: str, version: int, flags: int, data: list[bytes | bytearray | memoryview] | bytes | bytearray | memoryview = b'') -> bytes:
-  return box(fourcc, [version.to_bytes(1, byteorder='big'), flags.to_bytes(3, byteorder='big'), (b''.join(data) if type(data) is list else data)])
+  return box(fourcc, [version.to_bytes(1, byteorder='big'), flags.to_bytes(3, byteorder='big'), (b''.join(data) if type(data) is list else cast(bytes | bytearray | memoryview, data))])
 
 def ftyp() -> bytes:
   return box('ftyp', [
@@ -26,11 +27,11 @@ def ftyp() -> bytes:
     'avc1'.encode('ascii')
   ])
 
-def moov(mvhd: bytes, mvex: bytes, trak: bytes) -> bytes:
+def moov(mvhd: bytes, mvex: bytes, trak: bytes | list[bytes]) -> bytes:
   return box('moov', [
     mvhd,
     mvex,
-    b''.join(trak) if type(trak) is list else trak
+    b''.join(trak) if type(trak) is list else cast(bytes, trak)
   ])
 
 def mvhd(timescale: int) -> bytes:
@@ -197,8 +198,8 @@ def wvtt() -> bytes:
 def vttC() -> bytes:
   return box('vttC', 'WEBVTT\n'.encode('ascii'))
 
-def mvex(trex: bytes) -> bytes:
-  return box('mvex', b''.join(trex) if type(trex) is list else trex)
+def mvex(trex: bytes | list[bytes]) -> bytes:
+  return box('mvex', b''.join(trex) if type(trex) is list else cast(bytes, trex))
 
 def trex(trackId: int) -> bytes:
   return fullbox('trex', 0, 0, [
@@ -209,7 +210,7 @@ def trex(trackId: int) -> bytes:
     b'\x00\x01\x00\x01' # default_sample_flags
   ])
 
-def moof(sequence_number: int, fragments: list[int, int, int, int, tuple[int, int, bool, int]]) -> bytes:
+def moof(sequence_number: int, fragments: list[tuple[int, int, int, int, list[tuple[int, int, bool, int]]]]) -> bytes:
   moofSize = len(
     box('moof', [
       mfhd(sequence_number),
@@ -226,7 +227,7 @@ def mfhd(sequence_number: int) -> bytes:
     (sequence_number).to_bytes(4, byteorder='big')
   ])
 
-def traf(trackId: int, duration: int, baseMediaDecodeTime: int, offset: int, samples: tuple[int, int, bool, int]) -> bytes:
+def traf(trackId: int, duration: int, baseMediaDecodeTime: int, offset: int, samples: list[tuple[int, int, bool, int]]) -> bytes:
   return box('traf', [
     tfhd(trackId, duration),
     tfdt(baseMediaDecodeTime),
@@ -242,7 +243,7 @@ def tfhd(trackId: int, duraiton: int) -> bytes:
 def tfdt(baseMediaDecodeTime: int) -> bytes:
   return fullbox('tfdt', 1, 0, baseMediaDecodeTime.to_bytes(8, byteorder='big'))
 
-def trun(offset: int, samples: tuple[int, int, bool, int]) -> bytes:
+def trun(offset: int, samples: list[tuple[int, int, bool, int]]) -> bytes:
   return fullbox('trun', 0, 0x000F01, [
     (len(samples)).to_bytes(4, byteorder='big'),
     (offset).to_bytes(4, byteorder='big'),
@@ -261,7 +262,7 @@ def trun(offset: int, samples: tuple[int, int, bool, int]) -> bytes:
 def mdat(data: bytes | bytearray | memoryview) -> bytes:
   return box('mdat', data)
 
-def emsg(timescale: int, presentationTime: int, duration: int, schemeIdUri: str, content: bytes | bytearray | memoryview) -> bytes:
+def emsg(timescale: int, presentationTime: int, duration: int | None, schemeIdUri: str, content: bytes | bytearray | memoryview) -> bytes:
   return fullbox('emsg', 1, 0, [
     (timescale).to_bytes(4, byteorder='big'),
     (presentationTime).to_bytes(8, byteorder='big'),

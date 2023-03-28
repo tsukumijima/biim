@@ -1,3 +1,5 @@
+from typing import cast
+
 from mp4.box import trak, tkhd, mdia, mdhd, hdlr, minf, vmhd, dinf, stbl, stsd, hvc1
 from util.bitstream import BitStream
 
@@ -13,24 +15,24 @@ def ebsp2rbsp(data: bytes | bytearray | memoryview) -> bytes:
   return bytes(rbsp)
 
 def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview, sps: bytes | bytearray | memoryview, pps: bytes | bytearray | memoryview) -> bytes:
-  general_profile_space = None
-  general_tier_flag = None
-  general_profile_idc = None
-  general_profile_compatibility_flags = None
-  general_constraint_indicator_flags = None
-  general_level_idc = None
-  chroma_format_idc = None
-  min_spatial_segmentation_idc = None
-  bit_depth_luma_minus8 = None
-  bit_depth_chroma_minus8 = None
+  general_profile_space: int | None = None
+  general_tier_flag: bool | None = None
+  general_profile_idc: int | None = None
+  general_profile_compatibility_flags: bytes | None = None
+  general_constraint_indicator_flags: bytes | None = None
+  general_level_idc: int | None = None
+  chroma_format_idc: int | None = None
+  min_spatial_segmentation_idc: int | None = None
+  bit_depth_luma_minus8: int | None = None
+  bit_depth_chroma_minus8: int | None = None
   constant_frame_rate = 0
 
   sar_width = 1
   sar_height = 1
-  pic_width_in_luma_samples = None
-  pic_height_in_luma_samples = None
-  codec_width = None
-  codec_height = None
+  pic_width_in_luma_samples: int | None = None
+  pic_height_in_luma_samples: int | None  = None
+  codec_width: int | None = None
+  codec_height: int | None = None
 
   def parseSPS():
     nonlocal general_profile_space
@@ -339,21 +341,21 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
   hvcC = b''.join([
     bytes([
       0x01,
-      ((general_profile_space & 0x03) << 6) | ((1 if general_tier_flag else 0) << 5) | ((general_profile_idc & 0x1F)),
+      ((cast(int, general_profile_space) & 0x03) << 6) | ((1 if cast(bool, general_tier_flag) else 0) << 5) | ((cast(int, general_profile_idc) & 0x1F)),
     ]),
-    general_profile_compatibility_flags,
-    general_constraint_indicator_flags,
+    cast(bytes | bytearray | memoryview, general_profile_compatibility_flags),
+    cast(bytes | bytearray | memoryview, general_constraint_indicator_flags),
     bytes([
-      general_level_idc,
-      0xF0 | ((min_spatial_segmentation_idc & 0x0F00) >> 8),
-      ((min_spatial_segmentation_idc & 0x00FF) >> 0),
-      0xFC | (parallelismType & 0x03),
-      0xFC | (chroma_format_idc & 0x03),
-      0xF8 | (bit_depth_luma_minus8 & 0x07),
-      0xF8 | (bit_depth_chroma_minus8 & 0x07),
+      cast(int, general_level_idc),
+      (0xF0 | ((cast(int, min_spatial_segmentation_idc) & 0x0F00) >> 8)),
+      ((cast(int, min_spatial_segmentation_idc) & 0x00FF) >> 0),
+      (0xFC | (cast(int, parallelismType) & 0x03)),
+      (0xFC | (cast(int, chroma_format_idc) & 0x03)),
+      (0xF8 | (cast(int, bit_depth_luma_minus8) & 0x07)),
+      (0xF8 | (cast(int, bit_depth_chroma_minus8) & 0x07)),
       0x00,
       0x00,
-      ((constant_frame_rate & 0x03) << 6) | ((num_temporal_layers & 0x07) << 3) | ((1 if temporal_id_nesting_flag else 0) << 2) | 3,
+      ((cast(int, constant_frame_rate) & 0x03) << 6) | ((cast(int, num_temporal_layers) & 0x07) << 3) | (((1 if (cast(bool, temporal_id_nesting_flag)) else 0) << 2) | 3),
       0x03,
     ]),
     bytes([
@@ -379,17 +381,20 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
     pps
   ])
 
+  presentation_width = (cast(int, codec_width) * sar_width + (sar_height - 1)) // sar_height
+  presentation_height = cast(int, codec_height)
+
   return trak(
-    tkhd(trackId, (codec_width * sar_width + (sar_height - 1)) // sar_height, codec_height),
+    tkhd(trackId, presentation_width, presentation_height),
     mdia(
       mdhd(timescale),
-      hdlr('vide', 'videohandler'),
+      hdlr('vide', 'videoHandler'),
       minf(
         vmhd(),
         dinf(),
         stbl(
           stsd(
-            hvc1(hvcC, codec_width, codec_height)
+            hvc1(hvcC, cast(int, codec_width), cast(int, codec_height))
           )
         )
       )
