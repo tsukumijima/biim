@@ -66,3 +66,8 @@ ffmpeg -re \
   -f mpegts - | ./fmp4.py -t 1 -p 0.15 -w 10 --port 8080
 # watch http://localhost:8080/playlist.m3u8
 ```
+
+## Special Thanks
+
+* [xtne6f](https://github.com/xtne6f): C++ ReImplementation ([tsmemseg](https://github.com/xtne6f/tsmemseg)) and Report ISOBMFF related misc bugs.
+* [tsukumi](https://github.com/tsukumijima): Very helpful advice and implementation to biim's Type Definision.
