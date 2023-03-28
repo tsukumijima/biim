@@ -70,4 +70,4 @@ ffmpeg -re \
 ## Special Thanks
 
 * [xtne6f](https://github.com/xtne6f): C++ ReImplementation ([tsmemseg](https://github.com/xtne6f/tsmemseg)) and Report ISOBMFF related misc bugs.
-* [tsukumi](https://github.com/tsukumijima): Very helpful advice and implementation to biim's Type Definision.
+* [tsukumi](https://github.com/tsukumijima): Very helpful advice and implementation to biim's Type Definition.
