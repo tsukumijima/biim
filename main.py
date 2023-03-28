@@ -10,7 +10,6 @@ import time
 
 from collections import deque
 
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from mpeg2ts import ts
@@ -18,7 +17,7 @@ from mpeg2ts.packetize import packetize_section, packetize_pes
 from mpeg2ts.pat import PATSection
 from mpeg2ts.pmt import PMTSection
 from mpeg2ts.scte import SpliceInfoSection, SpliceInsert, TimeSignal, SegmentationDescriptor
-from mpeg2ts.pes import PES
+from mpeg2ts.h264 import H264PES
 from mpeg2ts.parser import SectionParser, PESParser
 
 from hls.m3u8 import M3U8
@@ -130,7 +129,7 @@ async def main():
   PAT_Parser: SectionParser[PATSection] = SectionParser(PATSection)
   PMT_Parser: SectionParser[PMTSection] = SectionParser(PMTSection)
   SCTE35_Parser: SectionParser[SpliceInfoSection] = SectionParser(SpliceInfoSection)
-  H264_PES_Parser: PESParser[PES] = PESParser(PES)
+  H264_PES_Parser: PESParser[H264PES] = PESParser(H264PES)
 
   LATEST_VIDEO_TIMESTAMP: int | None = None
   LATEST_VIDEO_MONOTONIC_TIME: int | None = None
@@ -241,29 +240,11 @@ async def main():
         timestamp = H264.dts() if H264.has_dts() else H264.pts()
         program_date_time: datetime = LATEST_PCR_DATETIME + timedelta(seconds=(((timestamp - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
 
-        data = H264.PES_packet_data()
-        begin = 0
-        while begin < len(data):
-          if begin + 2 >= len(data): break
-
-          if data[begin + 0] != 0:
-            begin += 1
-            continue
-          elif data[begin + 1] != 0:
-            begin += 1
-            continue
-          elif data[begin + 2] != 1:
-            begin += 1
-            continue
-          elif begin + 3 >= len(data):
-            break
-
-          nal_unit_type = data[begin + 3] & 0x1f
+        for ebsp in H264:
+          nal_unit_type = ebsp[0] & 0x1f
           if nal_unit_type == 5:
             has_IDR = True
             break
-
-          begin += 4
 
         if has_IDR:
           while SCTE35_OUT_QUEUE:
