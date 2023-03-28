@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from typing import cast
+
 import asyncio
 from aiohttp import web
 
@@ -12,7 +14,7 @@ async def estimate_duration(path):
   options = ['-i', path, '-show_entries', 'format=duration']
 
   probe = await asyncio.subprocess.create_subprocess_exec('ffprobe', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-  duration = float((await probe.stdout.read()).decode('utf-8').split('\n')[1].split('=')[1])
+  duration = float((await cast(asyncio.StreamReader, probe.stdout).read()).decode('utf-8').split('\n')[1].split('=')[1])
   return duration
 
 async def main():
@@ -102,7 +104,7 @@ async def main():
     ]
 
     encoder = await asyncio.subprocess.create_subprocess_exec('ffmpeg', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-    output = await encoder.stdout.read()
+    output = await cast(asyncio.StreamReader, encoder.stdout).read()
 
     prosessing[seq] = False
     virtual_segments[seq].set_result(output)

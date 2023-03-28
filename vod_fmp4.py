@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from typing import cast
+
 import asyncio
 from aiohttp import web
 
@@ -45,7 +47,7 @@ async def estimate_duration(path):
   options = ['-i', path, '-show_entries', 'format=duration']
 
   probe = await asyncio.subprocess.create_subprocess_exec('ffprobe', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-  duration = float((await probe.stdout.read()).decode('utf-8').split('\n')[1].split('=')[1])
+  duration = float((await cast(asyncio.StreamReader, probe.stdout).read()).decode('utf-8').split('\n')[1].split('=')[1])
   return duration
 
 async def main():
@@ -66,7 +68,7 @@ async def main():
   virtual_segments = []
   processing = []
   process_caindidate = None
-  process_queue = asyncio.Queue()
+  process_queue: asyncio.Queue[int] = asyncio.Queue()
 
   async def playlist(request):
     result = await asyncio.shield(virutal_playlist)
@@ -123,8 +125,10 @@ async def main():
   virutal_playlist.set_result(virutal_playlist_header + virtual_playlist_body + virtual_playlist_tail)
   process_queue.put_nowait(0)
   wait_read = True
+  seq = None
   while True:
     if wait_read: seq = await process_queue.get()
+    seq = cast(int, seq)
     wait_read = False
     ss = max(0, seq * args.target_duration)
 
@@ -179,9 +183,11 @@ async def main():
       SPS = None
       PPS = None
 
+      LATEST_PCR_VALUE = None
+
       while True:
         try:
-          old_seq = seq
+          old_seq = cast(int, seq)
           seq = process_queue.get_nowait()
           wait_read = False
           processing[old_seq] = False
@@ -192,11 +198,12 @@ async def main():
 
         packet = None
         try:
-          packet = await encoder.stdout.readexactly(188)
+          packet = await cast(asyncio.StreamReader, encoder.stdout).readexactly(188)
         except:
           wait_read = True
           return
 
+        seq = cast(int, seq)
         endDTS = min(total, (seq + 1) * args.target_duration) * ts.HZ
         PID = ts.pid(packet)
         if PID == H264_PID:
@@ -396,7 +403,6 @@ async def main():
           PAT_Parser.push(packet)
           for PAT in PAT_Parser:
             if PAT.CRC32() != 0: continue
-            LAST_PAT = PAT
 
             for program_number, program_map_PID in PAT:
               if program_number == 0: continue
@@ -411,7 +417,7 @@ async def main():
             LAST_PMT = PMT
 
             PCR_PID = PMT.PCR_PID
-            for stream_type, elementary_PID in PMT:
+            for stream_type, elementary_PID, _ in PMT:
               if stream_type == 0x1b:
                 H264_PID = elementary_PID
               elif stream_type == 0x24:
@@ -432,42 +438,10 @@ async def main():
         else:
           pass
 
-        """
-        if CURR_H264:
-          isKeyframe, samples, dts, cts = CURR_H264
-          hasIDR = isKeyframe
-          duration = max(0, int(end - dts))
-          content = bytearray()
-          while samples:
-            ebsp = samples.popleft()
-            content += len(ebsp).to_bytes(4, byteorder='big') + ebsp
+        if PID == PCR_PID and ts.has_pcr(packet):
+          PCR_VALUE = (cast(int, ts.pcr(packet)) - ts.HZ + ts.PCR_CYCLE) % ts.PCR_CYCLE
+          LATEST_PCR_VALUE = PCR_VALUE
 
-          fmp4 += b''.join([
-            moof(0,
-              [
-                (1, duration, dts, 0, [(len(content), duration, isKeyframe, cts)])
-              ]
-            ),
-            mdat(content)
-          ])
-        if CURR_H265:
-          isKeyframe, samples, dts, cts = CURR_H265
-          hasIDR = isKeyframe
-          duration = max(0, int(end - dts))
-          content = bytearray()
-          while samples:
-            ebsp = samples.popleft()
-            content += len(ebsp).to_bytes(4, byteorder='big') + ebsp
-
-          fmp4 += b''.join([
-            moof(0,
-              [
-                (1, duration, dts, 0, [(len(content), duration, isKeyframe, cts)])
-              ]
-            ),
-            mdat(content)
-          ])
-        """
     await remux()
 
 if __name__ == '__main__':
