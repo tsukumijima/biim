@@ -54,7 +54,7 @@ class PartialSegment:
     return self.endPTS is not None
 
   def extinf(self) -> timedelta | None:
-    if not self.endPTS:
+    if self.endPTS is None:
       return None
     else:
       return timedelta(seconds = (((self.endPTS - self.beginPTS + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))

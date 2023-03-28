@@ -1,3 +1,5 @@
+from typing import cast
+
 from mp4.box import trak, tkhd, mdia, mdhd, hdlr, minf, vmhd, dinf, stbl, stsd, avc1
 from util.bitstream import BitStream
 
@@ -14,12 +16,14 @@ def ebsp2rbsp(data: bytes | bytearray | memoryview) -> bytes:
 
 def avcTrack(trackId: int, timescale: int, sps: bytes | bytearray | memoryview, pps: bytes | bytearray | memoryview) -> bytes:
   need_extra_fields = sps[3] not in [66, 77, 88]
-  chroma_format_idc = None
-  bit_depth_luma_minus8 = None
-  bit_depth_chroma_minus8 = None
+  chroma_format_idc: int | None = None
+  bit_depth_luma_minus8: int | None = None
+  bit_depth_chroma_minus8: int | None = None
 
-  codec_width, codec_height = None, None
-  presentation_width, presentation_height = None, None
+  codec_width: int | None = None
+  codec_height: int | None = None
+  presentation_width: int | None = None
+  presentation_height: int | None = None
 
   def parseSPS():
     nonlocal chroma_format_idc
@@ -172,24 +176,24 @@ def avcTrack(trackId: int, timescale: int, sps: bytes | bytearray | memoryview, 
     (len(pps)).to_bytes(2, byteorder='big'),
     pps,
     bytes([]) if not need_extra_fields else bytes([
-      0xFC | chroma_format_idc,
-      0xF8 | bit_depth_luma_minus8,
-      0xF8 | bit_depth_chroma_minus8,
+      0xFC | cast(int, chroma_format_idc),
+      0xF8 | cast(int, bit_depth_luma_minus8),
+      0xF8 | cast(int, bit_depth_chroma_minus8),
       0x00
     ])
   ])
 
   return trak(
-    tkhd(trackId, presentation_width, presentation_height),
+    tkhd(trackId, cast(int, presentation_width), cast(int, presentation_height)),
     mdia(
       mdhd(timescale),
-      hdlr('vide', 'videohandler'),
+      hdlr('vide', 'videoHandler'),
       minf(
         vmhd(),
         dinf(),
         stbl(
           stsd(
-            avc1(avcC, codec_width, codec_height)
+            avc1(avcC, cast(int, codec_width), cast(int, codec_height))
           )
         )
       )

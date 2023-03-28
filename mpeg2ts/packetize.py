@@ -4,7 +4,7 @@ from mpeg2ts import ts
 from mpeg2ts.section import Section
 from mpeg2ts.pes import PES
 
-def packetize_section(section: Type[Section], transport_error_indicator: bool, transport_priority: bool, pid: int, transport_scrambling_control: int, continuity_counter: int) -> list[bytes]:
+def packetize_section(section: Section, transport_error_indicator: bool, transport_priority: bool, pid: int, transport_scrambling_control: int, continuity_counter: int) -> list[bytes]:
   result: list[bytes] = []
   begin = 0
   while (begin < len(section)):
@@ -24,7 +24,7 @@ def packetize_section(section: Type[Section], transport_error_indicator: bool, t
     begin = next
   return result
 
-def packetize_pes(pes: type[PES], transport_error_indicator: bool, transport_priority: bool, pid: int, transport_scrambling_control: int, continuity_counter: int) -> list[bytes]:
+def packetize_pes(pes: PES, transport_error_indicator: bool, transport_priority: bool, pid: int, transport_scrambling_control: int, continuity_counter: int) -> list[bytes]:
   result: list[bytes] = []
   begin = 0
   while (begin < len(pes)):

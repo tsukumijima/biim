@@ -47,4 +47,3 @@ class Section:
         if c ^ bit: crc ^= 0x04c11db7
         crc &= 0xFFFFFFFF
     return crc
-

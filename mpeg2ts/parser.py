@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from collections import deque
-from typing import Generic, TypeVar, Iterator
+from typing import cast, Generic, Type, TypeVar, Iterator
 
 from mpeg2ts import ts
 from mpeg2ts.section import Section
@@ -11,10 +11,10 @@ SectionType = TypeVar('SectionType', bound=Section)
 PESType = TypeVar('PESType', bound=PES)
 
 class SectionParser(Generic[SectionType]):
-  def __init__(self, _class: SectionType = Section):
+  def __init__(self, _class: Type[Section] = Section):
     self.section: bytearray | None = None
-    self.queue: deque[SectionType] = deque()
-    self._class: SectionType = _class
+    self.queue: deque[Section] = deque()
+    self._class: Type[Section] = _class
 
   def __iter__(self) -> Iterator[SectionType]:
     return self
@@ -22,7 +22,7 @@ class SectionParser(Generic[SectionType]):
   def __next__(self) -> SectionType:
     if not self.queue:
       raise StopIteration()
-    return self.queue.popleft()
+    return cast(SectionType, self.queue.popleft())
 
   def push(self, packet: bytes | bytearray | memoryview) -> None:
     begin = ts.HEADER_SIZE + (1 + ts.adaptation_field_length(packet) if ts.has_adaptation_field(packet) else 0)
@@ -67,10 +67,10 @@ class SectionParser(Generic[SectionType]):
         self.section = None
 
 class PESParser(Generic[PESType]):
-  def __init__(self, _class: PESType = PES):
+  def __init__(self, _class: Type[PES] = PES):
     self.pes = None
-    self.queue: deque[PESType] = deque()
-    self._class: PESType = _class
+    self.queue: deque[PES] = deque()
+    self._class: Type[PES] = _class
 
   def __iter__(self) -> Iterator[PESType]:
     return self
@@ -78,7 +78,7 @@ class PESParser(Generic[PESType]):
   def __next__(self) -> PESType:
     if not self.queue:
       raise StopIteration()
-    return self.queue.popleft()
+    return cast(PESType, self.queue.popleft())
 
   def push(self, packet: bytes | bytearray | memoryview) -> None:
     begin = ts.HEADER_SIZE + (1 + ts.adaptation_field_length(packet) if ts.has_adaptation_field(packet) else 0)
@@ -101,6 +101,8 @@ class PESParser(Generic[PESType]):
       else:
         next = min(begin + (PES.HEADER_SIZE + pes_length) - len(self.pes), ts.PACKET_SIZE)
       self.pes += packet[begin:next]
+    else:
+      return
 
     if ((self.pes[4] << 8) | self.pes[5]) > 0:
       if len(self.pes) == PES.HEADER_SIZE + (self.pes[4] << 8 | self.pes[5]):

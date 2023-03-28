@@ -3,9 +3,9 @@
 import asyncio
 import math
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from typing import Any
+from typing import Any, cast
 
 from hls.segment import Segment
 
@@ -35,7 +35,7 @@ class M3U8:
     self.media_sequence: int = 0
     self.target_duration: int = target_duration
     self.part_target: float = part_target
-    self.window_size: int = window_size
+    self.window_size: int | None = window_size
     self.hasInit: bool = hasInit
     self.dateranges: dict[str, Daterange] = dict()
     self.segments: deque[Segment] = deque()
@@ -155,7 +155,8 @@ class M3U8:
   def estimated_tartget_duration(self) -> int:
     target_duration = self.target_duration
     for segment in self.segments:
-      if segment.isCompleted(): target_duration = max(target_duration, math.ceil(segment.extinf().total_seconds()))
+      if not segment.isCompleted(): continue
+      target_duration = max(target_duration, math.ceil(cast(timedelta, segment.extinf()).total_seconds()))
     return target_duration
 
   def manifest(self, skip: bool = False) -> str:
@@ -177,8 +178,9 @@ class M3U8:
 
     if len(self.segments) > 0:
       for id in list(self.dateranges.keys()):
-        if self.dateranges[id].end_date is None: continue
-        if self.dateranges[id].end_date >= self.segments[0].program_date_time: continue
+        end_date = self.dateranges[id].end_date
+        if end_date is None: continue
+        if end_date >= self.segments[0].program_date_time: continue
         del self.dateranges[id]
 
     skip_end_index = 0
@@ -187,7 +189,7 @@ class M3U8:
       for seg_index, segment in enumerate(reversed(self.segments)):
         seg_index = (len(self.segments) - 1) - seg_index
         if not segment.isCompleted(): continue
-        elapsed += segment.extinf().total_seconds()
+        elapsed += cast(timedelta, segment.extinf()).total_seconds()
         if elapsed >= self.estimated_tartget_duration() * 6:
           skip_end_index = seg_index
           break
@@ -210,10 +212,10 @@ class M3U8:
           if not partial.isCompleted():
             m3u8 += f'#EXT-X-PRELOAD-HINT:TYPE=PART,URI="part?msn={msn}&part={part_index}"{hasIFrame}\n'
           else:
-            m3u8 += f'#EXT-X-PART:DURATION={partial.extinf().total_seconds():.06f},URI="part?msn={msn}&part={part_index}"{hasIFrame}\n'
+            m3u8 += f'#EXT-X-PART:DURATION={cast(timedelta, partial.extinf()).total_seconds():.06f},URI="part?msn={msn}&part={part_index}"{hasIFrame}\n'
 
       if segment.isCompleted():
-        m3u8 += f'#EXTINF:{segment.extinf().total_seconds():.06f}\n'
+        m3u8 += f'#EXTINF:{cast(timedelta, segment.extinf()).total_seconds():.06f}\n'
         m3u8 += f'segment?msn={msn}\n'
 
     return m3u8

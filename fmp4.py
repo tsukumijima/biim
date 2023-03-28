@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from typing import cast
+
 import asyncio
 from aiohttp import web
 
@@ -10,7 +12,6 @@ import time
 
 from collections import deque
 
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from mpeg2ts import ts
@@ -28,8 +29,6 @@ from mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat, emsg
 from mp4.avc import avcTrack
 from mp4.hevc import hevcTrack
 from mp4.mp4a import mp4aTrack
-
-from id3.priv import PRIV
 
 from util.reader import BufferingAsyncReader
 
@@ -74,7 +73,7 @@ async def main():
     nonlocal m3u8
     msn = request.query['_HLS_msn'] if '_HLS_msn' in request.query else None
     part = request.query['_HLS_part'] if '_HLS_part' in request.query else None
-    skip = request.query['_HLS_skip'] == 'YES' if '_HLS_skip' in request.query else None
+    skip = request.query['_HLS_skip'] == 'YES' if '_HLS_skip' in request.query else False
 
     if msn is None and part is None:
       future = m3u8.plain()
@@ -175,8 +174,8 @@ async def main():
   LATEST_PCR_DATETIME: datetime | None = None
 
   LATEST_VIDEO_TIMESTAMP_90KHZ: int | None = None
-  LATEST_VIDEO_MONOTONIC_TIME: int | None = None
-  LATEST_VIDEO_SLEEP_DIFFERENCE: int = 0
+  LATEST_VIDEO_MONOTONIC_TIME: float | None = None
+  LATEST_VIDEO_SLEEP_DIFFERENCE: float = 0
 
   PMT_PID: int | None = None
   AAC_PID: int | None = None
@@ -185,7 +184,7 @@ async def main():
   ID3_PID: int | None = None
   SCTE35_PID: int | None = None
 
-  AAC_CONFIG: tuple[bytes, int, int] = None
+  AAC_CONFIG: tuple[bytes, int, int] | None = None
 
   CURR_H264: tuple[bool, deque[bytes], int, int, datetime] | None= None
   NEXT_H264: tuple[bool, deque[bytes], int, int, datetime] | None = None
@@ -237,8 +236,10 @@ async def main():
       H264_PES_Parser.push(packet)
       for H264 in H264_PES_Parser:
         if LATEST_PCR_VALUE is None: continue
-        dts = H264.dts() if H264.has_dts() else H264.pts()
-        cts = (H264.pts() - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
+        if LATEST_PCR_DATETIME is None: continue
+        dts = cast(int, H264.dts() if H264.has_dts() else H264.pts())
+        pts = cast(int, H264.pts())
+        cts = (pts - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
         timestamp = ((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
         program_date_time: datetime = LATEST_PCR_DATETIME + timedelta(seconds=(((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
         keyframe_in_samples = False
@@ -295,17 +296,17 @@ async def main():
                 trex(1),
                 trex(2)
               ]),
-              [
+              b''.join([
                 avcTrack(1, ts.HZ, SPS, PPS),
                 mp4aTrack(2, ts.HZ, *AAC_CONFIG),
-              ]
+              ])
             )
           ]))
           INITIALIZATION_SEGMENT_DISPATCHED = True
 
         if begin_timestamp is None: continue
 
-        if has_IDR:
+        if has_IDR and begin_program_date_time is not None:
           while SCTE35_OUT_QUEUE:
             if SCTE35_OUT_QUEUE[0][1] <= begin_program_date_time:
               id, start_date, end_date, attributes = SCTE35_OUT_QUEUE.popleft()
@@ -335,7 +336,7 @@ async def main():
         while (H264_FRAGMENTS): m3u8.push(H264_FRAGMENTS.popleft())
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
 
-        if LATEST_VIDEO_TIMESTAMP_90KHZ is not None:
+        if LATEST_VIDEO_TIMESTAMP_90KHZ is not None and LATEST_VIDEO_MONOTONIC_TIME is not None:
           TIMESTAMP_DIFF = (begin_timestamp - LATEST_VIDEO_TIMESTAMP_90KHZ) / ts.HZ
           TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
           if args.input is not sys.stdin.buffer:
@@ -350,8 +351,10 @@ async def main():
       H265_PES_Parser.push(packet)
       for H265 in H265_PES_Parser:
         if LATEST_PCR_VALUE is None: continue
-        dts = H265.dts() if H265.has_dts() else H265.pts()
-        cts = (H265.pts() - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
+        if LATEST_PCR_DATETIME is None: continue
+        dts = cast(int, H265.dts() if H265.has_dts() else H265.pts())
+        pts = cast(int, H265.pts())
+        cts = (pts - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
         timestamp = ((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
         program_date_time: datetime = LATEST_PCR_DATETIME + timedelta(seconds=(((dts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
         keyframe_in_samples = False
@@ -410,17 +413,17 @@ async def main():
                 trex(1),
                 trex(2)
               ]),
-              [
+              b''.join([
                 hevcTrack(1, ts.HZ, VPS, SPS, PPS),
                 mp4aTrack(2, ts.HZ, *AAC_CONFIG),
-              ]
+              ])
             )
           ]))
           INITIALIZATION_SEGMENT_DISPATCHED = True
 
         if begin_timestamp is None: continue
 
-        if has_IDR:
+        if has_IDR and begin_program_date_time is not None:
           while SCTE35_OUT_QUEUE:
             if SCTE35_OUT_QUEUE[0][1] <= begin_program_date_time:
               id, start_date, end_date, attributes = SCTE35_OUT_QUEUE.popleft()
@@ -450,7 +453,7 @@ async def main():
         while (H265_FRAGMENTS): m3u8.push(H265_FRAGMENTS.popleft())
         while (AAC_FRAGMENTS): m3u8.push(AAC_FRAGMENTS.popleft())
 
-        if LATEST_VIDEO_TIMESTAMP_90KHZ is not None:
+        if LATEST_VIDEO_TIMESTAMP_90KHZ is not None and LATEST_VIDEO_MONOTONIC_TIME is not None:
           TIMESTAMP_DIFF = (begin_timestamp - LATEST_VIDEO_TIMESTAMP_90KHZ) / ts.HZ
           TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
           if args.input is not sys.stdin.buffer:
@@ -465,7 +468,8 @@ async def main():
       AAC_PES_Parser.push(packet)
       for AAC_PES in AAC_PES_Parser:
         if LATEST_PCR_VALUE is None: continue
-        timestamp = ((AAC_PES.pts() - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+        pts = cast(int, AAC_PES.pts())
+        timestamp = ((pts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
         begin, ADTS_AAC = 0, AAC_PES.PES_packet_data()
         length = len(ADTS_AAC)
         while begin < length:
@@ -528,7 +532,8 @@ async def main():
       ID3_PES_Parser.push(packet)
       for ID3_PES in ID3_PES_Parser:
         if LATEST_PCR_VALUE is None: continue
-        timestamp = ((ID3_PES.pts() - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
+        pts = cast(int, ID3_PES.pts())
+        timestamp = ((pts - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) + LATEST_PCR_TIMESTAMP_90KHZ
         ID3 = ID3_PES.PES_packet_data()
         EMSG_FRAGMENTS.append(emsg(ts.HZ, timestamp, None, 'https://aomedia.org/emsg/ID3', ID3))
 
@@ -538,7 +543,7 @@ async def main():
         if SCTE35.CRC32() != 0: continue
 
         if SCTE35.splice_command_type == SpliceInfoSection.SPLICE_INSERT:
-          splice_insert: SpliceInsert = SCTE35.splice_command
+          splice_insert: SpliceInsert = cast(SpliceInsert, SCTE35.splice_command)
           id = str(splice_insert.splice_event_id)
           if splice_insert.splice_event_cancel_indicator: continue
           if not splice_insert.program_splice_flag: continue
@@ -555,7 +560,8 @@ async def main():
               SCTE35_OUT_QUEUE.append((id, start_date, None, attributes))
             else:
               if LATEST_PCR_VALUE is None: continue
-              start_date = timedelta(seconds=(((splice_insert.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
+              if LATEST_PCR_DATETIME is None: continue
+              start_date = timedelta(seconds=(((cast(int, splice_insert.splice_time.pts_time) + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
 
               if splice_insert.duration_flag:
                 attributes['PLANNED-DURATION'] = str(splice_insert.break_duration.duration / ts.HZ)
@@ -569,18 +575,20 @@ async def main():
               SCTE35_IN_QUEUE.append((id, end_date))
             else:
               if LATEST_PCR_VALUE is None: continue
-              end_date = timedelta(seconds=(((splice_insert.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
+              if LATEST_PCR_DATETIME is None: continue
+              end_date = timedelta(seconds=(((cast(int, splice_insert.splice_time.pts_time) + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
               SCTE35_IN_QUEUE.append((id, end_date))
 
         elif SCTE35.splice_command_type == SpliceInfoSection.TIME_SIGNAL:
-          time_signal: TimeSignal = SCTE35.splice_command
+          time_signal: TimeSignal = cast(TimeSignal, SCTE35.splice_command)
           if LATEST_PCR_VALUE is None: continue
+          if LATEST_PCR_DATETIME is None: continue
           specified_time = LATEST_PCR_DATETIME
           if time_signal.splice_time.time_specified_flag:
-            specified_time = timedelta(seconds=(((time_signal.splice_time.pts_time + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
+            specified_time = timedelta(seconds=(((cast(int, time_signal.splice_time.pts_time) + SCTE35.pts_adjustment - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ)) + LATEST_PCR_DATETIME
           for descriptor in SCTE35.descriptors:
             if descriptor.descriptor_tag != 0x02: continue
-            segmentation_descriptor: SegmentationDescriptor = descriptor
+            segmentation_descriptor: SegmentationDescriptor = cast(SegmentationDescriptor, descriptor)
             id = str(segmentation_descriptor.segmentation_event_id)
             if segmentation_descriptor.segmentation_event_cancel_indicator: continue
             if not segmentation_descriptor.program_segmentation_flag: continue
@@ -597,7 +605,7 @@ async def main():
       pass
 
     if PID == PCR_PID and ts.has_pcr(packet):
-      PCR_VALUE = (ts.pcr(packet) - ts.HZ + ts.PCR_CYCLE) % ts.PCR_CYCLE
+      PCR_VALUE = (cast(int, ts.pcr(packet)) - ts.HZ + ts.PCR_CYCLE) % ts.PCR_CYCLE
       PCR_DIFF = ((PCR_VALUE - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE) if LATEST_PCR_VALUE is not None else 0
       LATEST_PCR_TIMESTAMP_90KHZ += PCR_DIFF
       if LATEST_PCR_DATETIME is None: LATEST_PCR_DATETIME = datetime.now(timezone.utc) - timedelta(seconds=(1))
