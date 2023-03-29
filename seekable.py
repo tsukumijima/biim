@@ -7,11 +7,11 @@ import sys
 
 from pathlib import Path
 
-from mpeg2ts import ts
-from mpeg2ts.pat import PATSection
-from mpeg2ts.pmt import PMTSection
-from mpeg2ts.pes import PES
-from mpeg2ts.parser import SectionParser
+from biim.mpeg2ts import ts
+from biim.mpeg2ts.pat import PATSection
+from biim.mpeg2ts.pmt import PMTSection
+from biim.mpeg2ts.pes import PES
+from biim.mpeg2ts.parser import SectionParser
 
 
 if __name__ == '__main__':
