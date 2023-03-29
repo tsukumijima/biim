@@ -6,7 +6,6 @@ import asyncio
 from aiohttp import web
 
 import argparse
-import sys
 
 from pathlib import Path
 
@@ -30,11 +29,11 @@ async def main():
   duration = await estimate_duration(args.input)
   num_of_segments = int((duration + args.target_duration - 1) // args.target_duration)
 
-  virutal_playlist = asyncio.Future()
-  virtual_segments = []
-  prosessing = []
-  process_caindidate = None
-  process_queue = asyncio.Queue()
+  virutal_playlist: asyncio.Future[str] = asyncio.Future()
+  virtual_segments: list[asyncio.Future[bytes]] = []
+  processing: list[int] = []
+  process_caindidate: int | None = None
+  process_queue: asyncio.Queue[int] = asyncio.Queue()
 
   async def playlist(request):
     result = await asyncio.shield(virutal_playlist)
@@ -50,11 +49,11 @@ async def main():
     if seq < 0 or seq >= len(virtual_segments):
       return web.Response(headers={'Access-Control-Allow-Origin': '*'}, status=400, content_type="video/mp4")
 
-    if not virtual_segments[seq].done() and not prosessing[seq]:
+    if not virtual_segments[seq].done() and not processing[seq]:
       process_queue.put_nowait(seq)
 
     body = await asyncio.shield(virtual_segments[seq])
-    if seq + 1 < len(virtual_segments) and not virtual_segments[seq].done() and not prosessing[seq]:
+    if seq + 1 < len(virtual_segments) and not virtual_segments[seq].done() and not processing[seq]:
       process_caindidate = seq + 1
 
     response = web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache,no-store'}, body=body, content_type="video/mp4")
@@ -68,7 +67,7 @@ async def main():
   ])
   runner = web.AppRunner(app)
   await runner.setup()
-  await loop.create_server(runner.server, '0.0.0.0', args.port)
+  await loop.create_server(cast(web.Server, runner.server), '0.0.0.0', args.port)
 
   virutal_playlist_header = ''
   virutal_playlist_header += f'#EXTM3U\n'
@@ -82,14 +81,14 @@ async def main():
   virtual_playlist_tail = '#EXT-X-ENDLIST\n'
   virtual_inits = [asyncio.Future() for _ in range(num_of_segments)]
   virtual_segments = [asyncio.Future() for _ in range(num_of_segments)]
-  prosessing = [False for _ in range(num_of_segments)]
+  processing = [False for _ in range(num_of_segments)]
 
   virutal_playlist.set_result(virutal_playlist_header + virtual_playlist_body + virtual_playlist_tail)
   while True:
     seq = await process_queue.get()
     process_queue.task_done()
     if virtual_segments[seq].done(): continue
-    prosessing[seq] = True
+    processing[seq] = True
 
     ss = max(0, seq * args.target_duration)
     t = args.target_duration
@@ -106,7 +105,7 @@ async def main():
     encoder = await asyncio.subprocess.create_subprocess_exec('ffmpeg', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
     output = await cast(asyncio.StreamReader, encoder.stdout).read()
 
-    prosessing[seq] = False
+    processing[seq] = False
     virtual_segments[seq].set_result(output)
     if process_caindidate is not None and not virtual_segments[process_caindidate].done():
       process_queue.put_nowait(process_caindidate)

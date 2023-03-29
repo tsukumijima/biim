@@ -6,15 +6,12 @@ import asyncio
 from aiohttp import web
 
 import argparse
-import sys
-import os
 
 from collections import deque
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from mpeg2ts import ts
-from mpeg2ts.packetize import packetize_section, packetize_pes
-from mpeg2ts.section import Section
 from mpeg2ts.pat import PATSection
 from mpeg2ts.pmt import PMTSection
 from mpeg2ts.pes import PES
@@ -63,11 +60,10 @@ async def main():
   total = await estimate_duration(args.input)
   num_of_segments = int((total + args.target_duration - 1) // args.target_duration)
 
-  virutal_playlist = asyncio.Future()
-  virtual_init = asyncio.Future()
-  virtual_segments = []
-  processing = []
-  process_caindidate = None
+  virutal_playlist: asyncio.Future[str] = asyncio.Future()
+  virtual_init: asyncio.Future[bytes] = asyncio.Future()
+  virtual_segments: list[asyncio.Future[bytearray]] = []
+  processing: list[int] = []
   process_queue: asyncio.Queue[int] = asyncio.Queue()
 
   async def playlist(request):
@@ -79,7 +75,6 @@ async def main():
     body = await asyncio.shield(virtual_init)
     return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/mp4")
   async def segment(request):
-    nonlocal process_caindidate
     seq = request.query['seq'] if 'seq' in request.query else None
 
     if seq is None:
@@ -106,7 +101,7 @@ async def main():
   ])
   runner = web.AppRunner(app)
   await runner.setup()
-  await loop.create_server(runner.server, '0.0.0.0', args.port)
+  await loop.create_server(cast(web.Server, runner.server), '0.0.0.0', args.port)
 
   virutal_playlist_header = ''
   virutal_playlist_header += f'#EXTM3U\n'
@@ -134,7 +129,7 @@ async def main():
 
     cmd = [
       'python3', 'seekable.py',
-      '-i', str(args.input), '-s', str(ss),
+      '-i', f'"{args.input}"', '-s', str(ss),
       '|',
       'ffmpeg', '-f', 'mpegts', '-i', '-',
       '-map', '0:v:0', '-map', '0:a:0',
@@ -157,33 +152,33 @@ async def main():
       nonlocal wait_read
 
       # setup reader
-      PAT_Parser = SectionParser(PATSection)
-      PMT_Parser = SectionParser(PMTSection)
-      AAC_PES_Parser = PESParser(PES)
-      H264_PES_Parser = PESParser(H264PES)
-      H265_PES_Parser = PESParser(H265PES)
-      ID3_PES_Parser = PESParser(PES)
+      PAT_Parser: SectionParser[PATSection] = SectionParser(PATSection)
+      PMT_Parser: SectionParser[PMTSection] = SectionParser(PMTSection)
+      AAC_PES_Parser: PESParser[PES] = PESParser(PES)
+      H264_PES_Parser: PESParser[H264PES] = PESParser(H264PES)
+      H265_PES_Parser: PESParser[H265PES] = PESParser(H265PES)
+      ID3_PES_Parser: PESParser[PES] = PESParser(PES)
 
-      PCR_PID = None
-      PMT_PID = None
-      AAC_PID = None
-      H264_PID = None
-      H265_PID = None
-      ID3_PID = None
+      PCR_PID: int | None = None
+      LATEST_PCR_VALUE: int | None = None
 
-      AAC_CONFIG = None
-      AAC_DATA = None
+      PMT_PID: int | None = None
+      AAC_PID: int | None = None
+      H264_PID: int | None = None
+      H265_PID: int | None = None
+      ID3_PID: int | None = None
 
-      CURR_H264 = None
-      NEXT_H264 = None
-      CURR_H265 = None
-      NEXT_H265 = None
+      AAC_CONFIG: tuple[bytes, int, int] | None = None
+      AAC_DATA: tuple[int, int, int, bytearray] | None = None
 
-      VPS = None
-      SPS = None
-      PPS = None
+      CURR_H264: tuple[bool, deque[bytes], int, int] | None = None
+      NEXT_H264: tuple[bool, deque[bytes], int, int] | None = None
+      CURR_H265: tuple[bool, deque[bytes], int, int] | None = None
+      NEXT_H265: tuple[bool, deque[bytes], int, int] | None = None
 
-      LATEST_PCR_VALUE = None
+      VPS: bytes | None = None
+      SPS: bytes | None = None
+      PPS: bytes | None = None
 
       while True:
         try:
@@ -209,10 +204,10 @@ async def main():
         if PID == H264_PID:
           H264_PES_Parser.push(packet)
           for H264 in H264_PES_Parser:
-            timestamp = H264.dts() if H264.has_dts() else H264.pts()
-            cts = (H264.pts() - (H264.dts() if H264.has_dts() else H264.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
-            keyInSamples = False
-            samples = deque()
+            timestamp = cast(int, H264.dts() if H264.has_dts() else H264.pts())
+            cts = (cast(int, H264.pts()) - cast(int, H264.dts() if H264.has_dts() else H264.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
+            keyframe_in_samples = False
+            samples: deque[bytes] = deque()
 
             for ebsp in H264:
               nal_unit_type = ebsp[0] & 0x1f
@@ -224,16 +219,14 @@ async def main():
               elif nal_unit_type == 0x09 or nal_unit_type == 0x06: # AUD or SEI
                 pass
               elif nal_unit_type == 0x05:
-                keyInSamples = True
+                keyframe_in_samples = True
                 samples.append(ebsp)
               else:
                 samples.append(ebsp)
-            NEXT_H264 = (keyInSamples, samples, timestamp, cts) if samples else None
+            NEXT_H264 = (keyframe_in_samples, samples, timestamp, cts) if samples else None
 
-            hasIDR = False
             if CURR_H264:
-              isKeyframe, samples, dts, cts = CURR_H264
-              hasIDR = isKeyframe
+              has_key_frame, samples, dts, cts = CURR_H264
               duration = timestamp - dts
               content = bytearray()
               while samples:
@@ -243,7 +236,7 @@ async def main():
               fmp4 += b''.join([
                 moof(0,
                   [
-                    (1, duration, dts, 0, [(len(content), duration, isKeyframe, cts)])
+                    (1, duration, dts, 0, [(len(content), duration, has_key_frame, cts)])
                   ]
                 ),
                 mdat(content)
@@ -259,10 +252,10 @@ async def main():
                     trex(1),
                     trex(2)
                   ]),
-                  [
+                  b''.join([
                     avcTrack(1, ts.HZ, SPS, PPS),
                     mp4aTrack(2, ts.HZ, *AAC_CONFIG),
-                  ]
+                  ])
                 )
               ]))
 
@@ -281,10 +274,10 @@ async def main():
         elif PID == H265_PID:
           H265_PES_Parser.push(packet)
           for H265 in H265_PES_Parser:
-            timestamp = H265.dts() if H265.has_dts() else H265.pts()
-            cts = (H265.pts() - (H265.dts() if H265.has_dts() else  H265.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
-            keyInSamples = False
-            samples = deque()
+            timestamp = cast(int, H265.dts() if H265.has_dts() else H265.pts())
+            cts = (cast(int, H265.pts()) - cast(int, H265.dts() if H265.has_dts() else  H265.pts()) + ts.PCR_CYCLE) % ts.PCR_CYCLE
+            keyframe_in_samples = False
+            samples: deque[bytes] = deque()
 
             for ebsp in H265:
               nal_unit_type = (ebsp[0] >> 1) & 0x3f
@@ -298,16 +291,14 @@ async def main():
               elif nal_unit_type == 0x23 or nal_unit_type == 0x27: # AUD or SEI
                 pass
               elif nal_unit_type == 19 or nal_unit_type == 20 or nal_unit_type == 21: # IDR_W_RADL, IDR_W_LP, CRA_NUT
-                keyInSamples = True
+                keyframe_in_samples = True
                 samples.append(ebsp)
               else:
                 samples.append(ebsp)
-            NEXT_H265 = (keyInSamples, samples, timestamp, cts) if samples else None
+            NEXT_H265 = (keyframe_in_samples, samples, timestamp, cts) if samples else None
 
-            hasIDR = False
             if CURR_H265:
-              isKeyframe, samples, dts, cts = CURR_H265
-              hasIDR = isKeyframe
+              has_key_frame, samples, dts, cts = CURR_H265
               duration = timestamp - dts
               content = bytearray()
               while samples:
@@ -317,7 +308,7 @@ async def main():
               fmp4 += b''.join([
                 moof(0,
                   [
-                    (1, duration, dts, 0, [(len(content), duration, isKeyframe, cts)])
+                    (1, duration, dts, 0, [(len(content), duration, has_key_frame, cts)])
                   ]
                 ),
                 mdat(content)
@@ -333,15 +324,16 @@ async def main():
                     trex(1),
                     trex(2)
                   ]),
-                  [
+                  b''.join([
                     hevcTrack(1, ts.HZ, VPS, SPS, PPS),
                     mp4aTrack(2, ts.HZ, *AAC_CONFIG),
-                  ]
+                  ])
                 )
               ]))
 
             if timestamp >= endDTS:
-              virtual_segments[seq].set_result(fmp4)
+              if not virtual_segments[seq].done():
+                virtual_segments[seq].set_result(fmp4)
               fmp4 = bytearray()
               processing[seq] = False
               if seq + 1 < len(virtual_segments) and not virtual_segments[seq + 1].done():
@@ -354,7 +346,7 @@ async def main():
         elif PID == AAC_PID:
           AAC_PES_Parser.push(packet)
           for AAC_PES in AAC_PES_Parser:
-            timestamp = AAC_PES.pts()
+            timestamp = cast(int, AAC_PES.pts())
             begin, ADTS_AAC = 0, AAC_PES.PES_packet_data()
             length = len(ADTS_AAC)
             while begin + 1 < length:
@@ -414,7 +406,6 @@ async def main():
           PMT_Parser.push(packet)
           for PMT in PMT_Parser:
             if PMT.CRC32() != 0: continue
-            LAST_PMT = PMT
 
             PCR_PID = PMT.PCR_PID
             for stream_type, elementary_PID, _ in PMT:
@@ -431,7 +422,7 @@ async def main():
           ID3_PES_Parser.push(packet)
           for ID3_PES in ID3_PES_Parser:
             if LATEST_PCR_VALUE is None: continue
-            timestamp = ID3_PES.pts()
+            timestamp = cast(int, ID3_PES.pts())
             ID3 = ID3_PES.PES_packet_data()
             fmp4 += emsg(ts.HZ, timestamp, None, 'https://aomedia.org/emsg/ID3', ID3)
 
