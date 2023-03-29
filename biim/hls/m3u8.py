@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from typing import Any, cast
 
-from hls.segment import Segment
+from biim.hls.segment import Segment
 
 class Daterange:
   def __init__(self, id: str, start_date: datetime, end_date: datetime | None = None, **kwargs):

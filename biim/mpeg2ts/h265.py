@@ -3,7 +3,7 @@
 import re
 from typing import Iterator
 
-from mpeg2ts.pes import PES
+from biim.mpeg2ts.pes import PES
 
 SPLIT = re.compile('\0\0\0?\1'.encode('ascii'))
 

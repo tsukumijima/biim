@@ -2,7 +2,7 @@
 
 from typing import Iterator
 
-from mpeg2ts.section import Section
+from biim.mpeg2ts.section import Section
 
 class PMTSection(Section):
   def __init__(self, payload: bytes | bytearray | memoryview = b''):

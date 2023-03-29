@@ -3,9 +3,9 @@
 from collections import deque
 from typing import cast, Generic, Type, TypeVar, Iterator
 
-from mpeg2ts import ts
-from mpeg2ts.section import Section
-from mpeg2ts.pes import PES
+from biim.mpeg2ts import ts
+from biim.mpeg2ts.section import Section
+from biim.mpeg2ts.pes import PES
 
 SectionType = TypeVar('SectionType', bound=Section)
 PESType = TypeVar('PESType', bound=PES)

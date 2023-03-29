@@ -14,17 +14,17 @@ from collections import deque
 
 from datetime import datetime, timedelta, timezone
 
-from mpeg2ts import ts
-from mpeg2ts.packetize import packetize_section, packetize_pes
-from mpeg2ts.pat import PATSection
-from mpeg2ts.pmt import PMTSection
-from mpeg2ts.scte import SpliceInfoSection, SpliceInsert, TimeSignal, SegmentationDescriptor
-from mpeg2ts.h264 import H264PES
-from mpeg2ts.parser import SectionParser, PESParser
+from biim.mpeg2ts import ts
+from biim.mpeg2ts.packetize import packetize_section, packetize_pes
+from biim.mpeg2ts.pat import PATSection
+from biim.mpeg2ts.pmt import PMTSection
+from biim.mpeg2ts.scte import SpliceInfoSection, SpliceInsert, TimeSignal, SegmentationDescriptor
+from biim.mpeg2ts.h264 import H264PES
+from biim.mpeg2ts.parser import SectionParser, PESParser
 
-from hls.m3u8 import M3U8
+from biim.hls.m3u8 import M3U8
 
-from util.reader import BufferingAsyncReader
+from biim.util.reader import BufferingAsyncReader
 
 async def main():
   loop = asyncio.get_running_loop()
