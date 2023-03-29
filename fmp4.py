@@ -14,23 +14,23 @@ from collections import deque
 
 from datetime import datetime, timedelta, timezone
 
-from mpeg2ts import ts
-from mpeg2ts.pat import PATSection
-from mpeg2ts.pmt import PMTSection
-from mpeg2ts.scte import SpliceInfoSection, SpliceInsert, TimeSignal, SegmentationDescriptor
-from mpeg2ts.pes import PES
-from mpeg2ts.h264 import H264PES
-from mpeg2ts.h265 import H265PES
-from mpeg2ts.parser import SectionParser, PESParser
+from biim.mpeg2ts import ts
+from biim.mpeg2ts.pat import PATSection
+from biim.mpeg2ts.pmt import PMTSection
+from biim.mpeg2ts.scte import SpliceInfoSection, SpliceInsert, TimeSignal, SegmentationDescriptor
+from biim.mpeg2ts.pes import PES
+from biim.mpeg2ts.h264 import H264PES
+from biim.mpeg2ts.h265 import H265PES
+from biim.mpeg2ts.parser import SectionParser, PESParser
 
-from hls.m3u8 import M3U8
+from biim.hls.m3u8 import M3U8
 
-from mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat, emsg
-from mp4.avc import avcTrack
-from mp4.hevc import hevcTrack
-from mp4.mp4a import mp4aTrack
+from biim.mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat, emsg
+from biim.mp4.avc import avcTrack
+from biim.mp4.hevc import hevcTrack
+from biim.mp4.mp4a import mp4aTrack
 
-from util.reader import BufferingAsyncReader
+from biim.util.reader import BufferingAsyncReader
 
 SAMPLING_FREQUENCY = {
   0x00: 96000,

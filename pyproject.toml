@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "biim"
+description = 'LL-HLS implementation written in Python3'
+url = "https://github.com/monyone/biim"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+keywords = []
+authors = [
+  { name = "monyone" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+  "aiohttp~=3.8.4",
+]
+dynamic = ["version"]
+
+[project.urls]
+Documentation = "https://github.com/monyone/biim#readme"
+Issues = "https://github.com/monyone/biim/issues"
+Source = "https://github.com/monyone/biim"
+
+[tool.hatch.version]
+path = "biim/__init__.py"
