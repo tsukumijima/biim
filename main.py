@@ -125,7 +125,7 @@ async def main():
   ])
   runner = web.AppRunner(app)
   await runner.setup()
-  await loop.create_server(runner.server, '0.0.0.0', args.port)
+  await loop.create_server(cast(web.Server, runner.server), '0.0.0.0', args.port)
 
   # setup reader
   PAT_Parser: SectionParser[PATSection] = SectionParser(PATSection)
