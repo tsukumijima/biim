@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 
+from typing import cast
+
 import argparse
-import os
 import sys
 
 from pathlib import Path
 
 from mpeg2ts import ts
-from mpeg2ts.packetize import packetize_section, packetize_pes
-from mpeg2ts.section import Section
 from mpeg2ts.pat import PATSection
 from mpeg2ts.pmt import PMTSection
 from mpeg2ts.pes import PES
-from mpeg2ts.h264 import H264PES
-from mpeg2ts.h265 import H265PES
-from mpeg2ts.parser import SectionParser, PESParser
+from mpeg2ts.parser import SectionParser
 
 
 if __name__ == '__main__':
@@ -26,25 +23,25 @@ if __name__ == '__main__':
 
   args = parser.parse_args()
 
-  FIRST_DTS = None
+  FIRST_DTS: int | None = None
 
-  PAT_Parser = SectionParser(PATSection)
-  PMT_Parser = SectionParser(PMTSection)
+  PAT_Parser: SectionParser[PATSection] = SectionParser(PATSection)
+  PMT_Parser: SectionParser[PMTSection] = SectionParser(PMTSection)
 
-  LATEST_VIDEO_TIMESTAMP = None
-  LATEST_VIDEO_MONOTONIC_TIME = None
-  LATEST_VIDEO_SLEEP_DIFFERENCE = 0
+  LATEST_VIDEO_TIMESTAMP: int | None = None
+  LATEST_VIDEO_MONOTONIC_TIME: int | None = None
+  LATEST_VIDEO_SLEEP_DIFFERENCE: int | None = 0
 
-  PMT_PID = None
-  PCR_PID = None
-  MPEG2_PID = None
-  H264_PID = None
-  H265_PID = None
+  PMT_PID: int | None = None
+  PCR_PID: int | None = None
+  MPEG2_PID: int | None = None
+  H264_PID: int | None = None
+  H265_PID: int | None = None
 
   BYTERATE = 0
   TIMES = 30
-  LATEST_PCR_VALUE = None
-  LATEST_PCR_BYTES = None
+  LATEST_PCR_VALUE: int | None = None
+  LATEST_PCR_BYTES: int | None = None
 
   OUTPUT = False
 
@@ -84,7 +81,7 @@ if __name__ == '__main__':
           LAST_PMT = PMT
 
           PCR_PID = PMT.PCR_PID
-          for stream_type, elementary_PID in PMT:
+          for stream_type, elementary_PID, _ in PMT:
             if stream_type == 0x02:
               MPEG2_PID = elementary_PID
             elif stream_type == 0x1b:
@@ -94,12 +91,12 @@ if __name__ == '__main__':
 
       if PID == PCR_PID and ts.has_pcr(packet):
         if LATEST_PCR_VALUE is None:
-          LATEST_PCR_VALUE = ts.pcr(packet)
+          LATEST_PCR_VALUE = cast(int, ts.pcr(packet))
           LATEST_PCR_BYTES = 0
         elif TIMES > 0:
           TIMES -= 1
         else:
-          BYTERATE = (LATEST_PCR_BYTES + ts.PACKET_SIZE) * ts.HZ / ((ts.pcr(packet) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE)
+          BYTERATE = (cast(int, LATEST_PCR_BYTES) + ts.PACKET_SIZE) * ts.HZ / ((cast(int, ts.pcr(packet)) - LATEST_PCR_VALUE + ts.PCR_CYCLE) % ts.PCR_CYCLE)
           break
 
       if LATEST_PCR_BYTES is not None:
@@ -141,7 +138,7 @@ if __name__ == '__main__':
           LAST_PMT = PMT
 
           PCR_PID = PMT.PCR_PID
-          for stream_type, elementary_PID in PMT:
+          for stream_type, elementary_PID, _ in PMT:
             if stream_type == 0x02:
               MPEG2_PID = elementary_PID
             elif stream_type == 0x1b:
@@ -205,7 +202,7 @@ if __name__ == '__main__':
           LAST_PMT = PMT
 
           PCR_PID = PMT.PCR_PID
-          for stream_type, elementary_PID in PMT:
+          for stream_type, elementary_PID, _ in PMT:
             if stream_type == 0x02:
               MPEG2_PID = elementary_PID
             elif stream_type == 0x1b:
@@ -216,22 +213,22 @@ if __name__ == '__main__':
       elif PID == MPEG2_PID:
         if ts.payload_unit_start_indicator(packet):
           MPEG2 = PES(ts.payload(packet))
-          timestamp = MPEG2.dts() if MPEG2.has_dts() else MPEG2.pts()
-          DIFF = ((timestamp - FIRST_DTS + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
+          timestamp = cast(int, MPEG2.dts() if MPEG2.has_dts() else MPEG2.pts())
+          DIFF = ((timestamp - cast(int, FIRST_DTS) + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
           if args.start <= DIFF: OUTPUT = True
 
       elif PID == H264_PID:
         if ts.payload_unit_start_indicator(packet):
           H264 = PES(ts.payload(packet))
-          timestamp = H264.dts() if H264.has_dts() else H264.pts()
-          DIFF = ((timestamp - FIRST_DTS + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
+          timestamp = cast(int, H264.dts() if H264.has_dts() else H264.pts())
+          DIFF = ((timestamp - cast(int, FIRST_DTS) + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
           if args.start <= DIFF: OUTPUT = True
 
       elif PID == H265_PID:
         if ts.payload_unit_start_indicator(packet):
           H265 = PES(ts.payload(packet))
-          timestamp = H265.dts() if H265.has_dts() else H265.pts()
-          DIFF = ((timestamp - FIRST_DTS + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
+          timestamp = cast(int, H265.dts() if H265.has_dts() else H265.pts())
+          DIFF = ((timestamp - cast(int, FIRST_DTS) + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
           if args.start <= DIFF: OUTPUT = True
 
       if OUTPUT or PID == 0x00 or PID == PMT_PID:
