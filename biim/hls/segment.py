@@ -4,7 +4,7 @@ from typing import Iterator
 import asyncio
 from datetime import datetime, timedelta, timezone
 
-from mpeg2ts import ts
+from biim.mpeg2ts import ts
 
 class PartialSegment:
   def __init__(self, beginPTS: int, isIFrame: bool = False):

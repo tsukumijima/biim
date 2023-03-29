@@ -1,8 +1,8 @@
 from typing import Type
 
-from mpeg2ts import ts
-from mpeg2ts.section import Section
-from mpeg2ts.pes import PES
+from biim.mpeg2ts import ts
+from biim.mpeg2ts.section import Section
+from biim.mpeg2ts.pes import PES
 
 def packetize_section(section: Section, transport_error_indicator: bool, transport_priority: bool, pid: int, transport_scrambling_control: int, continuity_counter: int) -> list[bytes]:
   result: list[bytes] = []

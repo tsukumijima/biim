@@ -2,8 +2,8 @@
 
 from typing import Type
 
-from util.bitstream import BitStream
-from mpeg2ts.section import Section
+from biim.util.bitstream import BitStream
+from biim.mpeg2ts.section import Section
 
 class SpliceInfoSection(Section):
   SPLICE_NULL = 0x00
