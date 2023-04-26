@@ -218,54 +218,54 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
         vui_poc_proportional_to_timing_flag = stream.readBool()
         if vui_poc_proportional_to_timing_flag:
           stream.readUEG()
-          vui_hrd_parameters_present_flag = stream.readBool()
-          if vui_hrd_parameters_present_flag:
-            commonInfPresentFlag = 1
-            nal_hrd_parameters_present_flag = False
-            vcl_hrd_parameters_present_flag = False
-            sub_pic_hrd_params_present_flag = False
-            if commonInfPresentFlag:
-              nal_hrd_parameters_present_flag = stream.readBool()
-              vcl_hrd_parameters_present_flag = stream.readBool()
-              if nal_hrd_parameters_present_flag or vcl_hrd_parameters_present_flag:
-                sub_pic_hrd_params_present_flag = stream.readBool()
+        vui_hrd_parameters_present_flag = stream.readBool()
+        if vui_hrd_parameters_present_flag:
+          commonInfPresentFlag = 1
+          nal_hrd_parameters_present_flag = False
+          vcl_hrd_parameters_present_flag = False
+          sub_pic_hrd_params_present_flag = False
+          if commonInfPresentFlag:
+            nal_hrd_parameters_present_flag = stream.readBool()
+            vcl_hrd_parameters_present_flag = stream.readBool()
+            if nal_hrd_parameters_present_flag or vcl_hrd_parameters_present_flag:
+              sub_pic_hrd_params_present_flag = stream.readBool()
+              if sub_pic_hrd_params_present_flag:
+                stream.readByte()
+                stream.readBits(5)
+                stream.readBool()
+                stream.readBits(5)
+              bit_rate_scale = stream.readBits(4)
+              cpb_size_scale = stream.readBits(4)
+              if sub_pic_hrd_params_present_flag: stream.readBits(4)
+              stream.readBits(5)
+              stream.readBits(5)
+              stream.readBits(5)
+          for i in range(max_sub_layers_minus1 + 1):
+            fixed_pic_rate_general_flag = stream.readBool()
+            fps_fixed = fixed_pic_rate_general_flag
+            fixed_pic_rate_within_cvs_flag = False
+            cpbCnt = 1
+            if not fixed_pic_rate_general_flag:
+              fixed_pic_rate_within_cvs_flag = stream.readBool()
+            low_delay_hrd_flag = False
+            if fixed_pic_rate_within_cvs_flag: stream.readSEG()
+            else:
+              low_delay_hrd_flag = stream.readBool()
+            if not low_delay_hrd_flag: cpbCnt = stream.readUEG() + 1
+            if nal_hrd_parameters_present_flag:
+              for j in range(0, cpbCnt):
+                stream.readUEG()
+                stream.readUEG()
                 if sub_pic_hrd_params_present_flag:
-                  stream.readByte()
-                  stream.readBits(5)
-                  stream.readBool()
-                  stream.readBits(5)
-                bit_rate_scale = stream.readBits(4)
-                cpb_size_scale = stream.readBits(4)
-                if sub_pic_hrd_params_present_flag: stream.readBits(4)
-                stream.readBits(5)
-                stream.readBits(5)
-                stream.readBits(5)
-            for i in range(max_sub_layers_minus1 + 1):
-              fixed_pic_rate_general_flag = stream.readBool()
-              fps_fixed = fixed_pic_rate_general_flag
-              fixed_pic_rate_within_cvs_flag = False
-              cpbCnt = 1
-              if not fixed_pic_rate_general_flag:
-                fixed_pic_rate_within_cvs_flag = stream.readBool()
-              low_delay_hrd_flag = False
-              if fixed_pic_rate_within_cvs_flag: stream.readSEG()
-              else:
-                low_delay_hrd_flag = stream.readBool()
-              if not low_delay_hrd_flag: cpbCnt = stream.readUEG() + 1
-              if nal_hrd_parameters_present_flag:
-                for j in range(0, cpbCnt):
                   stream.readUEG()
                   stream.readUEG()
-                  if sub_pic_hrd_params_present_flag:
-                    stream.readUEG()
-                    stream.readUEG()
-              if vcl_hrd_parameters_present_flag:
-                for j in range(0, cpbCnt):
+            if vcl_hrd_parameters_present_flag:
+              for j in range(0, cpbCnt):
+                stream.readUEG()
+                stream.readUEG()
+                if sub_pic_hrd_params_present_flag:
                   stream.readUEG()
                   stream.readUEG()
-                  if sub_pic_hrd_params_present_flag:
-                    stream.readUEG()
-                    stream.readUEG()
       bitstream_restriction_flag = stream.readBool()
       if bitstream_restriction_flag:
         tiles_fixed_structure_flag = stream.readBool()
