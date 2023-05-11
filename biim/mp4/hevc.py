@@ -127,10 +127,10 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
     sample_adaptive_offset_enabled_flag = stream.readBool()
     pcm_enabled_flag = stream.readBool()
     if pcm_enabled_flag:
-        stream.readByte()
-        stream.readUEG()
-        stream.readUEG()
-        stream.readBool()
+      stream.readByte()
+      stream.readUEG()
+      stream.readUEG()
+      stream.readBool()
     num_short_term_ref_pic_sets = stream.readUEG()
     num_delta_pocs = 0
     for i in range(num_short_term_ref_pic_sets):
@@ -161,7 +161,7 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
     if long_term_ref_pics_present_flag:
       num_long_term_ref_pics_sps = stream.readUEG()
       for i in range(num_long_term_ref_pics_sps):
-        for j in range(log2_max_pic_order_cnt_lsb_minus4 + 4): stream.readBits(1)
+        stream.readBits(log2_max_pic_order_cnt_lsb_minus4 + 4)
         stream.readBits(1)
 
     default_display_window_flag = False
@@ -243,12 +243,12 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
           for i in range(max_sub_layers_minus1 + 1):
             fixed_pic_rate_general_flag = stream.readBool()
             fps_fixed = fixed_pic_rate_general_flag
-            fixed_pic_rate_within_cvs_flag = False
+            fixed_pic_rate_within_cvs_flag = True
             cpbCnt = 1
             if not fixed_pic_rate_general_flag:
               fixed_pic_rate_within_cvs_flag = stream.readBool()
             low_delay_hrd_flag = False
-            if fixed_pic_rate_within_cvs_flag: stream.readSEG()
+            if fixed_pic_rate_within_cvs_flag: stream.readUEG()
             else:
               low_delay_hrd_flag = stream.readBool()
             if not low_delay_hrd_flag: cpbCnt = stream.readUEG() + 1
@@ -259,6 +259,7 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
                 if sub_pic_hrd_params_present_flag:
                   stream.readUEG()
                   stream.readUEG()
+                stream.readBool()
             if vcl_hrd_parameters_present_flag:
               for j in range(0, cpbCnt):
                 stream.readUEG()
@@ -266,6 +267,7 @@ def hevcTrack(trackId: int, timescale: int, vps: bytes | bytearray | memoryview,
                 if sub_pic_hrd_params_present_flag:
                   stream.readUEG()
                   stream.readUEG()
+                stream.readBool()
       bitstream_restriction_flag = stream.readBool()
       if bitstream_restriction_flag:
         tiles_fixed_structure_flag = stream.readBool()
