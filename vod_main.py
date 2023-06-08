@@ -35,10 +35,12 @@ async def main():
   process_caindidate: int | None = None
   process_queue: asyncio.Queue[int] = asyncio.Queue()
 
-  async def playlist(request):
+  async def index(request: web.Request):
+    return web.FileResponse(Path(__file__).parent / 'index.html')
+  async def playlist(request: web.Request):
     result = await asyncio.shield(virutal_playlist)
     return web.Response(headers={'Access-Control-Allow-Origin': '*'}, text=result, content_type="application/x-mpegURL")
-  async def segment(request):
+  async def segment(request: web.Request):
     nonlocal process_caindidate
     seq = request.query['seq'] if 'seq' in request.query else None
 
@@ -62,6 +64,7 @@ async def main():
   # setup aiohttp
   app = web.Application()
   app.add_routes([
+    web.get('/', index),
     web.get('/playlist.m3u8', playlist),
     web.get('/segment', segment),
   ])
@@ -95,11 +98,12 @@ async def main():
     options = [
       '-ss', str(max(0, ss - 10)), '-i', str(args.input), '-ss', str(ss - max(0, ss - 10)), '-t', str(t),
       '-map', '0:v', '-map', '0:a',
-      '-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast',
+      '-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast', '-b:v', '6000K',
+      '-profile:v', 'high', '-r', '30000/1001', '-aspect', '16:9', '-g', str(args.target_duration * 30),
       '-c:a', 'copy',
-      '-fflags', 'nobuffer', '-flags', 'low_delay', '-max_delay', '0',
+      '-fflags', 'nobuffer', '-flags', 'low_delay', '-flags', '+cgop', '-max_delay', '0',
       '-output_ts_offset', str(ss),
-      '-f', 'mpegts', '-'
+      '-f', 'mpegts', '-',
     ]
 
     encoder = await asyncio.subprocess.create_subprocess_exec('ffmpeg', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)

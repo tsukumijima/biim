@@ -8,7 +8,6 @@ from aiohttp import web
 import argparse
 
 from collections import deque
-from datetime import datetime, timedelta
 from pathlib import Path
 
 from biim.mpeg2ts import ts
@@ -66,15 +65,17 @@ async def main():
   processing: list[int] = []
   process_queue: asyncio.Queue[int] = asyncio.Queue()
 
-  async def playlist(request):
+  async def index(request: web.Request):
+    return web.FileResponse(Path(__file__).parent / 'index.html')
+  async def playlist(request: web.Request):
     result = await asyncio.shield(virutal_playlist)
     return web.Response(headers={'Access-Control-Allow-Origin': '*'}, text=result, content_type="application/x-mpegURL")
-  async def initalization(request):
+  async def initalization(request: web.Request):
     if not virtual_segments[0].done() and not processing[0]:
       process_queue.put_nowait(0)
     body = await asyncio.shield(virtual_init)
     return web.Response(headers={'Access-Control-Allow-Origin': '*'}, body=body, content_type="video/mp4")
-  async def segment(request):
+  async def segment(request: web.Request):
     seq = request.query['seq'] if 'seq' in request.query else None
 
     if seq is None:
@@ -95,6 +96,7 @@ async def main():
   # setup aiohttp
   app = web.Application()
   app.add_routes([
+    web.get('/', index),
     web.get('/playlist.m3u8', playlist),
     web.get('/init', initalization),
     web.get('/segment', segment),
@@ -132,12 +134,13 @@ async def main():
       '-i', f'"{args.input}"', '-s', str(ss),
       '|',
       'ffmpeg', '-f', 'mpegts', '-i', '-',
-      '-map', '0:v:0', '-map', '0:a:0',
-      '-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast',
+      '-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?', '-ignore_unknown',
+      '-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast', '-b:v', '6000K',
+      '-profile:v', 'high', '-r', '30000/1001', '-aspect', '16:9', '-g', str(args.target_duration * 30),
       '-c:a', 'copy',
-      '-fflags', 'nobuffer', '-flags', 'low_delay', '-max_delay', '0',
+      '-fflags', 'nobuffer', '-flags', 'low_delay', '-flags', '+cgop', '-max_delay', '0',
       '-output_ts_offset', str(ss),
-      '-f', 'mpegts', '-'
+      '-f', 'mpegts', '-',
     ]
     encoder = await asyncio.subprocess.create_subprocess_shell(' '.join(cmd), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
 

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>biim HLS Streaming Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.5/dist/hls.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/tsukumijima/DPlayer@v1.29.1/dist/DPlayer.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            font-family: sans-serif;
+        }
+        #video {
+            width: 100%;
+            height: 100svh;
+        }
+    </style>
+    <script>
+        // もしクエリに ?force_native_hls=true が付与されていたら hls.js を無効化
+        if (location.search.match(/force_native_hls/)) {
+            window.Hls = undefined;
+        }
+    </script>
+</head>
+<body>
+    <div id="video"></div>
+    <script>
+        const player = new DPlayer({
+            container: document.querySelector('#video'),
+            theme: '#E64F97',  // テーマカラー
+            lang: 'ja-jp',  // 言語
+            live: false,  // ビデオモード
+            loop: true,  // デフォルトでループ再生
+            airplay: false,  // AirPlay 機能 (うまく動かないため無効化)
+            autoplay: true,  // 自動再生
+            hotkey: true,  // キーボードショートカット
+            screenshot: true,  // スクリーンショット機能
+            volume: 1.0,  // 音量の初期値
+            // 映像
+            video: {
+                defaultQuality: '主音声',
+                quality: [
+                    {
+                        name: '主音声',
+                        type: 'hls',
+                        url: '/playlist.m3u8',
+                    }
+                ],
+            },
+            // プラグイン
+            pluginOptions: {
+                // aribb24.js
+                aribb24: {
+                    // DRCS 文字を対応する Unicode 文字に置換
+                    drcsReplacement: true,
+                    // 高解像度の字幕 Canvas を取得できるように
+                    enableRawCanvas: true,
+                    // 縁取りに strokeText API を利用
+                    useStrokeText: true,
+                }
+            },
+            // 字幕
+            subtitle: {
+                type: 'aribb24',  // aribb24.js を有効化
+            }
+        });
+        player.video.crossOrigin = 'anonymous';
+
+        // iOS Safari では明示的に play() しないと画質切り替え後に再生が始まらない
+        player.on('quality_start', () => {
+            player.video.play();
+        });
+    </script>
+</body>
+</html>
