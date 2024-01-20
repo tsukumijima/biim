@@ -170,8 +170,8 @@ async def main():
 
   PCR_PID: int | None = None
   LATEST_PCR_VALUE: int | None = None
-  LATEST_PCR_TIMESTAMP_90KHZ: int | None = 0
   LATEST_PCR_DATETIME: datetime | None = None
+  LATEST_PCR_TIMESTAMP_90KHZ: int = 0
 
   LATEST_VIDEO_TIMESTAMP_90KHZ: int | None = None
   LATEST_VIDEO_MONOTONIC_TIME: float | None = None
