@@ -31,12 +31,12 @@ class Daterange:
     ])
 
 class M3U8:
-  def __init__(self, *, target_duration: int, part_target: float, window_size: int | None = None, hasInit: bool = False):
+  def __init__(self, *, target_duration: int, part_target: float, window_size: int | None = None, has_init: bool = False):
     self.media_sequence: int = 0
     self.target_duration: int = target_duration
     self.part_target: float = part_target
     self.window_size: int | None = window_size
-    self.hasInit: bool = hasInit
+    self.has_init: bool = has_init
     self.dateranges: dict[str, Daterange] = dict()
     self.segments: deque[Segment] = deque()
     self.outdated: deque[Segment] = deque()
@@ -172,7 +172,7 @@ class M3U8:
       m3u8 += f'#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={(self.part_target * 3.001):.06f}\n'
     m3u8 += f'#EXT-X-MEDIA-SEQUENCE:{self.media_sequence}\n'
 
-    if self.hasInit:
+    if self.has_init:
       m3u8 += f'\n'
       m3u8 += f'#EXT-X-MAP:URI="init"\n'
 
