@@ -10,10 +10,6 @@ import sys
 import os
 import time
 
-from collections import deque
-
-from datetime import datetime, timedelta, timezone
-
 from biim.mpeg2ts import ts
 from biim.mpeg2ts.pat import PATSection
 from biim.mpeg2ts.pmt import PMTSection

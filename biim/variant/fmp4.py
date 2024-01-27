@@ -8,7 +8,6 @@ from biim.mpeg2ts import ts
 from biim.mpeg2ts.pes import PES
 from biim.mpeg2ts.h264 import H264PES
 from biim.mpeg2ts.h265 import H265PES
-from biim.mpeg2ts.scte import SpliceInfoSection, SpliceInsert, TimeSignal, SegmentationDescriptor
 from biim.mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat, emsg
 from biim.mp4.avc import avcTrack
 from biim.mp4.hevc import hevcTrack
@@ -37,11 +36,13 @@ class Fmp4VariantHandler(VariantHandler):
     # M3U8 Tracks
     self.audio_track: bytes | None = None
     self.video_track: bytes | None = None
-    #
+    # Video Codec Specific
+    self.h264_idr_detected = False
+    self.h265_idr_detected = False
     self.curr_h264: tuple[bool, bytearray, int, int, datetime] | None = None # hasIDR, mdat, timestamp, cts, program_date_time
     self.curr_h265: tuple[bool, bytearray, int, int, datetime] | None = None # hasIDR, mdat, timestamp, cts, program_date_time
 
-  def datetime(self, pts: int | None) -> datetime | None:
+  def program_date_time(self, pts: int | None) -> datetime | None:
     if self.latest_pcr_value is None or self.latest_pcr_datetime is None or pts is None: return None
     return self.latest_pcr_datetime + timedelta(seconds=(((pts - self.latest_pcr_value + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
 
@@ -54,7 +55,7 @@ class Fmp4VariantHandler(VariantHandler):
     if (pts := h265.pts()) is None: return
     cto = (pts - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
     if (timestamp := self.timestamp(dts)) is None: return
-    if (program_date_time := self.datetime(dts)) is None: return
+    if (program_date_time := self.program_date_time(dts)) is None: return
 
     hasIDR = False
     content = bytearray()
@@ -119,6 +120,9 @@ class Fmp4VariantHandler(VariantHandler):
     duration = next_timestamp - timestamp
     self.curr_h265 = next_h265
 
+    self.h265_idr_detected|= hasIDR
+    if not self.h265_idr_detected: return
+
     self.update(hasIDR, timestamp, program_date_time)
     self.m3u8.push(
       b''.join([
@@ -136,7 +140,7 @@ class Fmp4VariantHandler(VariantHandler):
     if (pts := h264.pts()) is None: return
     cto = (pts - dts + ts.PCR_CYCLE) % ts.PCR_CYCLE
     if (timestamp := self.timestamp(dts)) is None: return
-    if (program_date_time := self.datetime(dts)) is None: return
+    if (program_date_time := self.program_date_time(dts)) is None: return
 
     hasIDR = False
     content = bytearray()
@@ -199,6 +203,9 @@ class Fmp4VariantHandler(VariantHandler):
     duration = next_timestamp - timestamp
     self.curr_h264 = next_h264
 
+    self.h264_idr_detected|= hasIDR
+    if not self.h264_idr_detected: return
+
     self.update(hasIDR, timestamp, program_date_time)
     self.m3u8.push(
       b''.join([
@@ -213,7 +220,7 @@ class Fmp4VariantHandler(VariantHandler):
 
   def aac(self, aac: PES):
     if (timestamp := self.timestamp(aac.pts())) is None: return
-    if (program_date_time := self.datetime(aac.pts())) is None: return
+    if (program_date_time := self.program_date_time(aac.pts())) is None: return
 
     begin, ADTS_AAC = 0, aac.PES_packet_data()
     length = len(ADTS_AAC)
