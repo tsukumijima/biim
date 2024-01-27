@@ -1,9 +1,10 @@
-from abc import ABC, abstractmethod
-from typing import cast
-from collections import deque
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 
 from biim.variant.handler import VariantHandler
+from biim.variant.codec import aac_codec_parameter_string
+from biim.variant.codec import avc_codec_parameter_string
+from biim.variant.codec import hevc_codec_parameter_string
+
 from biim.mpeg2ts import ts
 from biim.mpeg2ts.pes import PES
 from biim.mpeg2ts.h264 import H264PES
@@ -13,7 +14,7 @@ from biim.mp4.avc import avcTrack
 from biim.mp4.hevc import hevcTrack
 from biim.mp4.mp4a import mp4aTrack
 
-SAMPLING_FREQUENCY = {
+AAC_SAMPLING_FREQUENCY = {
   0x00: 96000,
   0x01: 88200,
   0x02: 64000,
@@ -41,14 +42,8 @@ class Fmp4VariantHandler(VariantHandler):
     self.h265_idr_detected = False
     self.curr_h264: tuple[bool, bytearray, int, int, datetime] | None = None # hasIDR, mdat, timestamp, cts, program_date_time
     self.curr_h265: tuple[bool, bytearray, int, int, datetime] | None = None # hasIDR, mdat, timestamp, cts, program_date_time
-
-  def program_date_time(self, pts: int | None) -> datetime | None:
-    if self.latest_pcr_value is None or self.latest_pcr_datetime is None or pts is None: return None
-    return self.latest_pcr_datetime + timedelta(seconds=(((pts - self.latest_pcr_value + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
-
-  def timestamp(self, pts: int | None) -> int | None:
-    if self.latest_pcr_value is None or pts is None: return None
-    return ((pts - self.latest_pcr_value + ts.PCR_CYCLE) % ts.PCR_CYCLE) + self.latest_pcr_monotonic_timestamp_90khz
+    # Audio Codec Specific
+    self.last_aac_timestamp = None
 
   def h265(self, h265: H265PES):
     if (dts := h265.dts() or h265.pts()) is None: return
@@ -76,6 +71,8 @@ class Fmp4VariantHandler(VariantHandler):
         content += len(ebsp).to_bytes(4, byteorder='big') + ebsp
       else:
         content += len(ebsp).to_bytes(4, byteorder='big') + ebsp
+    if sps and not self.video_codec.done():
+      self.video_codec.set_result(hevc_codec_parameter_string(sps))
     if vps and sps and pps:
       self.video_track = hevcTrack(1, ts.HZ, vps, sps, pps)
 
@@ -159,6 +156,9 @@ class Fmp4VariantHandler(VariantHandler):
         content += len(ebsp).to_bytes(4, byteorder='big') + ebsp
       else:
         content += len(ebsp).to_bytes(4, byteorder='big') + ebsp
+
+    if sps and not self.video_codec.done():
+      self.video_codec.set_result(avc_codec_parameter_string(sps))
     if sps and pps:
       self.video_track = avcTrack(1, ts.HZ, sps, pps)
 
@@ -230,31 +230,35 @@ class Fmp4VariantHandler(VariantHandler):
       samplingFrequencyIndex = ((ADTS_AAC[begin + 2] & 0b00111100) >> 2)
       channelConfiguration = ((ADTS_AAC[begin + 2] & 0b00000001) << 2) | ((ADTS_AAC[begin + 3] & 0b11000000) >> 6)
       frameLength = ((ADTS_AAC[begin + 3] & 0x03) << 11) | (ADTS_AAC[begin + 4] << 3) | ((ADTS_AAC[begin + 5] & 0xE0) >> 5)
-      duration = 1024 * ts.HZ // SAMPLING_FREQUENCY[samplingFrequencyIndex]
+      duration = 1024 * ts.HZ // AAC_SAMPLING_FREQUENCY[samplingFrequencyIndex]
+
+      if not self.audio_codec.done():
+        self.audio_codec.set_result(aac_codec_parameter_string(profile + 1))
 
       if not self.audio_track:
         config = bytes([
           ((profile + 1) << 3) | ((samplingFrequencyIndex & 0x0E) >> 1),
           ((samplingFrequencyIndex & 0x01) << 7) | (channelConfiguration << 3)
         ])
-        self.audio_track = mp4aTrack(2, ts.HZ, config, channelConfiguration, SAMPLING_FREQUENCY[samplingFrequencyIndex])
+        self.audio_track = mp4aTrack(2, ts.HZ, config, channelConfiguration, AAC_SAMPLING_FREQUENCY[samplingFrequencyIndex])
 
-      if self.init and not self.has_video:
-        self.init.set_result(b''.join([
-          ftyp(),
-          moov(
-            mvhd(ts.HZ),
-            mvex([
-              trex(2)
-            ]),
-            b''.join([
-              self.audio_track
-            ])
-          )
-        ]))
+      if self.init and not self.init.done() and self.audio_track:
+        if not self.has_video:
+          self.init.set_result(b''.join([
+            ftyp(),
+            moov(
+              mvhd(ts.HZ),
+              mvex([
+                trex(2)
+              ]),
+              b''.join([
+                self.audio_track
+              ])
+            )
+          ]))
 
       if not self.has_video:
-        self.update(True, timestamp, program_date_time)
+        self.update(None, timestamp, program_date_time)
 
       self.m3u8.push(
         b''.join([

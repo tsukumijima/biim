@@ -37,11 +37,27 @@ class M3U8:
     self.part_target: float = part_target
     self.window_size: int | None = window_size
     self.has_init: bool = has_init
+    self.renditions: list[str] = []
     self.dateranges: dict[str, Daterange] = dict()
     self.segments: deque[Segment] = deque()
     self.outdated: deque[Segment] = deque()
     self.published: bool = False
     self.futures: list[asyncio.Future[str]] = []
+    self.bitrate = asyncio.Future[int]()
+
+  def set_renditions(self, renditions: list[str]):
+    self.renditions = renditions
+
+  def report(self) -> str | None:
+    segment_index = len(self.segments) - 1
+    while segment_index >= 0:
+      part_index = len(self.segments[segment_index].partials) - 1
+      while part_index >= 0:
+        if self.segments[segment_index].partials[part_index].isCompleted():
+          return f'LAST-MSN={self.media_sequence + segment_index},LAST-PART={part_index}'
+        part_index -= 1
+      segment_index -= 1
+    return None
 
   def in_range(self, msn: int) -> bool:
     return self.media_sequence <= msn and msn < self.media_sequence + len(self.segments)
@@ -99,6 +115,8 @@ class M3U8:
     for f in self.futures:
       if not f.done(): f.set_result(self.manifest())
     self.futures = []
+    if self.bitrate.done(): return
+    self.bitrate.set_result(int(len(self.segments[-1].buffer) * 8 / cast(timedelta, self.segments[-1].extinf()).total_seconds()))
 
   def completePartial(self, endPTS: int) -> None:
     if not self.segments: return
@@ -116,6 +134,8 @@ class M3U8:
     for f in self.futures:
       if not f.done(): f.set_result(self.manifest())
     self.futures = []
+    if self.bitrate.done(): return
+    self.bitrate.set_result(int(len(lastSegment.buffer) * 8 / cast(timedelta, lastSegment.extinf()).total_seconds()))
 
   def continuousPartial(self, endPTS: int, isIFrame: bool = False) -> None:
     lastSegment = self.segments[-1] if self.segments else None
@@ -144,6 +164,9 @@ class M3U8:
     if part > len(self.segments[index].partials): return None
     return await self.segments[index].partials[part].response()
 
+  async def bandwidth(self) -> int:
+    return await self.bitrate
+
   def open(self, id: str, start_date: datetime, end_date: datetime | None = None,  **kwargs):
     if id in self.dateranges: return
     self.dateranges[id] = Daterange(id, start_date, end_date, **kwargs)
@@ -162,7 +185,7 @@ class M3U8:
   def manifest(self, skip: bool = False) -> str:
     m3u8 = ''
     m3u8 += f'#EXTM3U\n'
-    m3u8 += f'#EXT-X-VERSION:{9}\n'
+    m3u8 += f'#EXT-X-VERSION:{9 if self.window_size is None else 6}\n'
     m3u8 += f'#EXT-X-TARGETDURATION:{self.estimated_tartget_duration()}\n'
     m3u8 += f'#EXT-X-PART-INF:PART-TARGET={self.part_target:.06f}\n'
     if self.window_size is None:
@@ -217,5 +240,11 @@ class M3U8:
       if segment.isCompleted():
         m3u8 += f'#EXTINF:{cast(timedelta, segment.extinf()).total_seconds():.06f}\n'
         m3u8 += f'segment?msn={msn}\n'
+
+    if not self.renditions: return m3u8
+    if (redintion_report := self.report()) is None: return m3u8
+    m3u8 += f'\n'
+    for path in self.renditions:
+      m3u8 += f'#EXT-X-RENDITION-REPORT:URI="{path}",{redintion_report}\n'
 
     return m3u8

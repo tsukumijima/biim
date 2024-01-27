@@ -15,6 +15,7 @@ class VariantHandler(ABC):
   def __init__(self, target_duration: int, part_target: float, content_type: str, window_size: int | None = None, has_init: bool = False, has_video: bool = True, has_audio: bool = True):
     self.target_duration = target_duration
     self.part_target = part_target
+    self.segment_timestamp: int | None = None
     self.part_timestamp: int | None = None
 
     # M3U8
@@ -23,6 +24,8 @@ class VariantHandler(ABC):
     self.content_type = content_type
     self.has_video = has_video
     self.has_audio = has_audio
+    self.video_codec = asyncio.Future[str]()
+    self.audio_codec = asyncio.Future[str]()
     # PCR
     self.latest_pcr_value: int | None = None
     self.latest_pcr_datetime: datetime | None = None
@@ -30,6 +33,8 @@ class VariantHandler(ABC):
     # SCTE35
     self.scte35_out_queue: deque[tuple[str, datetime, datetime | None, dict]] = deque()
     self.scte35_in_queue: deque[tuple[str, datetime]] = deque()
+    # Bitrate
+    self.bitrate = asyncio.Future[int]()
 
   async def playlist(self, request: web.Request) -> web.Response:
     msn = request.query['_HLS_msn'] if '_HLS_msn' in request.query else None
@@ -109,7 +114,32 @@ class VariantHandler(ABC):
     body = await asyncio.shield(self.init)
     return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000'}, body=body, content_type=self.content_type)
 
-  def update(self, new_segment: bool, timestamp: int, program_date_time: datetime):
+  async def bandwidth(self) -> int:
+    return await self.m3u8.bandwidth()
+
+  async def codec(self) -> str:
+    if self.has_video and self.has_audio:
+      return f'{await self.video_codec},{await self.audio_codec}'
+    elif self.has_video:
+      return f'{await self.video_codec}'
+    elif self.has_audio:
+      return f'{await self.audio_codec}'
+    else:
+      return ''
+
+  def set_renditions(self, renditions: list[str]):
+    self.m3u8.set_renditions(renditions)
+
+  def program_date_time(self, pts: int | None) -> datetime | None:
+    if self.latest_pcr_value is None or self.latest_pcr_datetime is None or pts is None: return None
+    return self.latest_pcr_datetime + timedelta(seconds=(((pts - self.latest_pcr_value + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ))
+
+  def timestamp(self, pts: int | None) -> int | None:
+    if self.latest_pcr_value is None or pts is None: return None
+    return ((pts - self.latest_pcr_value + ts.PCR_CYCLE) % ts.PCR_CYCLE) + self.latest_pcr_monotonic_timestamp_90khz
+
+  def update(self, new_segment: bool | None, timestamp: int, program_date_time: datetime):
+    # SCTE35
     if new_segment:
       while self.scte35_out_queue:
         if self.scte35_out_queue[0][1] <= program_date_time:
@@ -121,14 +151,15 @@ class VariantHandler(ABC):
           id, _ = self.scte35_in_queue.popleft()
           self.m3u8.close(id, program_date_time)  # SCTE-35 の IN を セグメント にそろえてる
         else: break
-
-    if new_segment:
+    # M3U8
+    if new_segment or (new_segment is None and (self.segment_timestamp is None or (timestamp - self.segment_timestamp) >= self.target_duration * ts.HZ)):
       if self.part_timestamp is not None:
         part_diff = timestamp - self.part_timestamp
         if self.part_target * ts.HZ < part_diff:
           self.part_timestamp = int(timestamp - max(0, part_diff - self.part_target * ts.HZ))
           self.m3u8.continuousPartial(self.part_timestamp, False)
       self.part_timestamp = timestamp
+      self.segment_timestamp = timestamp
       self.m3u8.continuousSegment(self.part_timestamp, True, program_date_time)
     elif self.part_timestamp is not None:
       part_diff = timestamp - self.part_timestamp
