@@ -138,7 +138,7 @@ class VariantHandler(ABC):
     if self.latest_pcr_value is None or pts is None: return None
     return ((pts - self.latest_pcr_value + ts.PCR_CYCLE) % ts.PCR_CYCLE) + self.latest_pcr_monotonic_timestamp_90khz
 
-  def update(self, new_segment: bool | None, timestamp: int, program_date_time: datetime):
+  def update(self, new_segment: bool | None, timestamp: int, program_date_time: datetime) -> bool:
     # SCTE35
     if new_segment:
       while self.scte35_out_queue:
@@ -161,11 +161,13 @@ class VariantHandler(ABC):
       self.part_timestamp = timestamp
       self.segment_timestamp = timestamp
       self.m3u8.continuousSegment(self.part_timestamp, True, program_date_time)
+      return True
     elif self.part_timestamp is not None:
       part_diff = timestamp - self.part_timestamp
       if self.part_target * ts.HZ <= part_diff:
         self.part_timestamp = int(timestamp - max(0, part_diff - self.part_target * ts.HZ))
         self.m3u8.continuousPartial(self.part_timestamp)
+    return False
 
   def pcr(self, pcr: int):
     pcr = (pcr - ts.HZ + ts.PCR_CYCLE) % ts.PCR_CYCLE

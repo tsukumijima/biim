@@ -55,10 +55,9 @@ class MpegtsVariantHandler(VariantHandler):
     self.last_pmt = PMT
     self.pmt_pid = pid
 
-  def update(self, new_segment: bool | None, timestamp: int, program_date_time: datetime):
-    super().update(new_segment, timestamp, program_date_time)
-    if not new_segment: return
-    if self.last_pat is None or self.last_pmt is None or self.pmt_pid is None: return
+  def update(self, new_segment: bool | None, timestamp: int, program_date_time: datetime) -> bool:
+    if self.last_pat is None or self.last_pmt is None or self.pmt_pid is None: return False
+    if not super().update(new_segment, timestamp, program_date_time): return False
 
     packets = packetize_section(self.last_pat, False, False, 0x00, 0, self.pat_cc)
     self.pat_cc = (self.pat_cc + len(packets)) & 0x0F
@@ -66,6 +65,7 @@ class MpegtsVariantHandler(VariantHandler):
     packets = packetize_section(self.last_pmt, False, False, self.pmt_pid, 0, self.pmt_cc)
     self.pmt_cc = (self.pmt_cc + len(packets)) & 0x0F
     for p in packets: self.m3u8.push(p)
+    return True
 
   def h265(self, pid: int, h265: H265PES):
     if (timestamp := self.timestamp(h265.dts() or h265.pts())) is None: return
