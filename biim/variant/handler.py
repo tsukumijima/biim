@@ -186,7 +186,7 @@ class VariantHandler(ABC):
       if splice_insert.splice_event_cancel_indicator: raise NotImplementedError()
       if not splice_insert.program_splice_flag: raise NotImplementedError()
       if splice_insert.out_of_network_indicator:
-        attributes = { 'scte35-OUT': '0x' + ''.join([f'{b:02X}' for b in scte35[:]]) }
+        attributes = { 'SCTE35-OUT': '0x' + ''.join([f'{b:02X}' for b in scte35[:]]) }
         if splice_insert.splice_immediate_flag or not splice_insert.splice_time.time_specified_flag:
           if self.latest_pcr_datetime is None: return
           start_date = self.latest_pcr_datetime
@@ -232,7 +232,7 @@ class VariantHandler(ABC):
         if not segmentation_descriptor.program_segmentation_flag: raise NotImplementedError()
 
         if segmentation_descriptor.segmentation_event_id in SegmentationDescriptor.ADVERTISEMENT_BEGIN:
-          attributes = { 'scte35-OUT': '0x' + ''.join([f'{b:02X}' for b in scte35[:]]) }
+          attributes = { 'SCTE35-OUT': '0x' + ''.join([f'{b:02X}' for b in scte35[:]]) }
           if segmentation_descriptor.segmentation_duration_flag:
             attributes['PLANNED-DURATION'] = str(segmentation_descriptor.segmentation_duration / ts.HZ)
           self.scte35_out_queue.append((id, specified_time, None, attributes))
