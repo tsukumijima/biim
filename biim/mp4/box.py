@@ -52,7 +52,7 @@ def trak(tkhd: bytes, mdia: bytes) -> bytes:
   return box('trak', tkhd + mdia)
 
 def tkhd(trackId: int, width: int, height: int) -> bytes:
-  return fullbox('tkhd', 0, 0, [
+  return fullbox('tkhd', 0, 0x000007, [
     (0).to_bytes(4, byteorder='big'), # creation_time
     (0).to_bytes(4, byteorder='big'), # modification_time
     trackId.to_bytes(4, byteorder='big'), # trackId
