@@ -10,11 +10,58 @@ import argparse
 import math
 from pathlib import Path
 import math
+import time
 
 from biim.mp4.mp4a import mp4aTrack
 from biim.mp4.box import ftyp, moov, mvhd, mvex, trex, moof, mdat
 from biim.variant.codec import aac_codec_parameter_string
-from biim.variant.fmp4 import Fmp4VariantHandler
+
+def fmp4_offset(mp4: bytearray, offset: float) -> None:
+  begin, end = 0, len(mp4)
+  timescale = 1
+  while begin < end:
+    size = int.from_bytes(mp4[begin + 0: begin + 4], byteorder='big')
+    fourcc = mp4[begin + 4: begin + 8].decode('ascii')
+
+    if fourcc == 'moov':
+      moov_begin, moov_end = begin + 8, begin + size
+      while moov_begin < moov_end:
+        moov_size = int.from_bytes(mp4[moov_begin + 0: moov_begin + 4], byteorder='big')
+        fourcc = mp4[moov_begin + 4: moov_begin + 8].decode('ascii')
+        if fourcc == 'trak': # Assume One Variant
+          trak_begin, trak_end = moov_begin + 8, moov_begin + moov_size
+          while trak_begin < trak_end:
+            trak_size = int.from_bytes(mp4[trak_begin + 0: trak_begin + 4], byteorder='big')
+            fourcc = mp4[trak_begin + 4: trak_begin + 8].decode('ascii')
+            if fourcc == 'mdia':
+              mdia_begin, mdia_end = trak_begin + 8, trak_begin + moov_size
+              while mdia_begin < mdia_end:
+                mdia_size = int.from_bytes(mp4[mdia_begin + 0: mdia_begin + 4], byteorder='big')
+                fourcc = mp4[mdia_begin + 4: mdia_begin + 8].decode('ascii')
+                if fourcc == 'mdhd':
+                  timescale = int.from_bytes(mp4[mdia_begin + 20: mdia_begin + 24], byteorder='big')
+                mdia_begin += mdia_size
+            trak_begin += trak_size
+        moov_begin += moov_size
+    elif fourcc == 'moof':
+      moof_begin, moof_end = begin + 8, begin + size
+      while moof_begin < moof_end:
+        moof_size = int.from_bytes(mp4[moof_begin + 0: moof_begin + 4], byteorder='big')
+        fourcc = mp4[moof_begin + 4: moof_begin + 8].decode('ascii')
+        if fourcc == 'traf': # Assume One Variant
+          traf_begin, traf_end = moof_begin + 8, moof_begin + moof_size
+          while traf_begin < traf_end:
+            traf_size = int.from_bytes(mp4[traf_begin + 0: traf_begin + 4], byteorder='big')
+            fourcc = mp4[traf_begin + 4: traf_begin + 8].decode('ascii')
+            if fourcc == 'tfdt':
+              version = mp4[traf_begin + 8]
+              if version == 0:
+                mp4[traf_begin + 12: traf_begin + 16] = int.to_bytes(max(0, int(offset * timescale)) + int.from_bytes(mp4[traf_begin + 12: traf_begin + 16], byteorder='big'), 4, byteorder='big')
+              elif version == 1:
+                mp4[traf_begin + 12: traf_begin + 20] = int.to_bytes(max(0, int(offset * timescale)) + int.from_bytes(mp4[traf_begin + 12: traf_begin + 20], byteorder='big'), 8, byteorder='big')
+            traf_begin += traf_size
+        moof_begin += moof_size
+    begin += size
 
 async def estimate_duration(input: Path) -> float:
   options = ['-i', f'{input}', '-show_entries', 'format=duration']
@@ -22,7 +69,7 @@ async def estimate_duration(input: Path) -> float:
   duration = float((await cast(asyncio.StreamReader, probe.stdout).read()).decode('utf-8').split('\n')[1].split('=')[1])
   return duration
 
-async def audio(input: Path, ffmpeg: Path, target_duration: int, selector = '0:a:0'):
+async def audio(input: Path, ffmpeg: Path, target_duration: int, copy = False, selector = '0:a:0'):
   sampling_frequency_table = {
     0x00: 96000,
     0x01: 88200,
@@ -40,11 +87,11 @@ async def audio(input: Path, ffmpeg: Path, target_duration: int, selector = '0:a
   }
   total_duration = await estimate_duration(input)
 
-  options = [
-    '-i', input, '-vn', '-map', selector,
-    '-c:a', 'aac', '-ac', '2',
-    '-f', 'adts', '-'
-  ]
+  options = \
+    ['-i', input, '-vn', '-map', selector] + \
+    (['-c:a', 'aac', '-ac', '2'] if not copy else ['-c:a', 'copy']) + \
+    ['-f', 'adts', '-']
+
   exec = await asyncio.subprocess.create_subprocess_exec(ffmpeg, *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
   reader = cast(asyncio.StreamReader, exec.stdout)
 
@@ -157,7 +204,7 @@ async def audio(input: Path, ffmpeg: Path, target_duration: int, selector = '0:a
   asyncio.create_task(process())
   return codec, playlist, segment, initalization
 
-async def video(input: Path, ffmpeg: Path, target_duration: int, selector = '0:v:0'):
+async def video(input: Path, ffmpeg: Path, target_duration: int, copy = False, selector = '0:v:0'):
   total_duration = await estimate_duration(input)
   num_of_segments = int((total_duration + target_duration - 1) // target_duration)
 
@@ -165,11 +212,9 @@ async def video(input: Path, ffmpeg: Path, target_duration: int, selector = '0:v
   init: asyncio.Future[bytes] = asyncio.Future[bytes]()
 
   processing: list[bool] = [False for _ in range(num_of_segments)]
-  process_caindidate: int | None = None
   process_queue: asyncio.Queue[int] = asyncio.Queue()
 
   process_queue.put_nowait(0)
-  process_caindidate = 1
 
   async def playlist(request: web.Request) -> web.Response:
     m3u8 = ''
@@ -188,7 +233,6 @@ async def video(input: Path, ffmpeg: Path, target_duration: int, selector = '0:v
     m3u8 += f'#EXT-X-ENDLIST\n'
     return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=200, body=m3u8, content_type="application/x-mpegURL")
   async def segment(request):
-    nonlocal process_caindidate
     msn = request.query['msn'] if 'msn' in request.query else None
 
     if msn is None:
@@ -202,8 +246,6 @@ async def video(input: Path, ffmpeg: Path, target_duration: int, selector = '0:v
       process_queue.put_nowait(msn)
 
     body = await segments[msn][1]
-    if msn + 1 < len(segments) and not segments[msn][1].done() and not processing[msn]:
-      process_caindidate = msn + 1
 
     response = web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache,no-store'}, body=body, content_type="video/mp4")
     return response
@@ -211,77 +253,40 @@ async def video(input: Path, ffmpeg: Path, target_duration: int, selector = '0:v
     return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=36000'}, body=(await init), content_type="video/mp4")
 
   async def process():
-    nonlocal process_caindidate, process_queue
+    nonlocal process_queue
     while True:
       msn = await process_queue.get()
       process_queue.task_done()
-      if segments[msn][1].done(): continue
+      if segments[msn][1].done():
+        if process_queue.empty() and msn + 1 < len(segments):
+          process_queue.put_nowait(msn + 1)
+        continue
       processing[msn] = True
+      print(msn)
 
       ss = max(0, msn * target_duration)
       t =  target_duration
-      options = [
-        '-ss', str(max(0, ss - 10)), '-i', str(input), '-ss', str(ss - max(0, ss - 10)), '-t', str(t),
-        '-an', '-map', selector,
-        '-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast',
-        '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-        '-f', 'mp4', '-'
-      ]
+      options = \
+        ['-ss', str(max(0, ss - 10)), '-i', str(input), '-ss', str(ss - max(0, ss - 10)), '-t', str(t)] + \
+        ['-an', '-map', selector] + \
+        (['-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast'] if not copy else ['-c:v', 'copy']) + \
+        ['-movflags', 'frag_every_frame+empty_moov+default_base_moof'] + \
+        ['-f', 'mp4', '-']
 
       encoder = await asyncio.subprocess.create_subprocess_exec(ffmpeg, *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
       output = bytearray(await cast(asyncio.StreamReader, encoder.stdout).read())
+      fmp4_offset(output, (msn * target_duration))
 
       begin, end = 0, len(output)
       header = bytearray()
       body = bytearray()
-      timescale = 1
       while begin < end:
         size = int.from_bytes(output[begin + 0: begin + 4], byteorder='big')
         fourcc = output[begin + 4: begin + 8].decode('ascii')
 
-        if fourcc == 'ftyp':
+        if fourcc in ['ftyp', 'moov']:
           header += output[begin: begin + size]
-        elif fourcc == 'moov':
-          moov_begin, moov_end = begin + 8, begin + size
-          while moov_begin < moov_end:
-            moov_size = int.from_bytes(output[moov_begin + 0: moov_begin + 4], byteorder='big')
-            fourcc = output[moov_begin + 4: moov_begin + 8].decode('ascii')
-            if fourcc == 'trak': # Assume One Variant
-              trak_begin, trak_end = moov_begin + 8, moov_begin + moov_size
-              while trak_begin < trak_end:
-                trak_size = int.from_bytes(output[trak_begin + 0: trak_begin + 4], byteorder='big')
-                fourcc = output[trak_begin + 4: trak_begin + 8].decode('ascii')
-                if fourcc == 'mdia':
-                  mdia_begin, mdia_end = trak_begin + 8, trak_begin + moov_size
-                  while mdia_begin < mdia_end:
-                    mdia_size = int.from_bytes(output[mdia_begin + 0: mdia_begin + 4], byteorder='big')
-                    fourcc = output[mdia_begin + 4: mdia_begin + 8].decode('ascii')
-                    if fourcc == 'mdhd':
-                      timescale = int.from_bytes(output[mdia_begin + 20: mdia_begin + 24], byteorder='big')
-                    mdia_begin += mdia_size
-                trak_begin += trak_size
-            moov_begin += moov_size
-          header += output[begin: begin + size]
-        elif fourcc == 'moof':
-          moof_begin, moof_end = begin + 8, begin + size
-          while moof_begin < moof_end:
-            moof_size = int.from_bytes(output[moof_begin + 0: moof_begin + 4], byteorder='big')
-            fourcc = output[moof_begin + 4: moof_begin + 8].decode('ascii')
-            if fourcc == 'traf': # Assume One Variant
-              traf_begin, traf_end = moof_begin + 8, moof_begin + moof_size
-              while traf_begin < traf_end:
-                traf_size = int.from_bytes(output[traf_begin + 0: traf_begin + 4], byteorder='big')
-                fourcc = output[traf_begin + 4: traf_begin + 8].decode('ascii')
-                if fourcc == 'tfdt':
-                  version = output[traf_begin + 8]
-                  if version == 0:
-                    output[traf_begin + 12: traf_begin + 16] = int.to_bytes((msn * target_duration) * timescale + int.from_bytes(output[traf_begin + 12: traf_begin + 16], byteorder='big'), 4, byteorder='big')
-                  elif version == 1:
-                    output[traf_begin + 12: traf_begin + 20] = int.to_bytes((msn * target_duration) * timescale + int.from_bytes(output[traf_begin + 12: traf_begin + 20], byteorder='big'), 8, byteorder='big')
-                traf_begin += traf_size
-            moof_begin += moof_size
-          body += output[begin: begin + size]
-        elif fourcc == 'mdat':
+        elif fourcc in ['moof', 'mdat']:
           body += output[begin: begin + size]
 
         begin += size
@@ -289,10 +294,8 @@ async def video(input: Path, ffmpeg: Path, target_duration: int, selector = '0:v
       processing[msn] = False
       if not init.done(): init.set_result(header)
       segments[msn][1].set_result(memoryview(body))
-      if process_caindidate is not None and not segments[process_caindidate][1].done():
-        process_queue.put_nowait(process_caindidate)
-        if process_caindidate + 1 < len(segments) and not segments[process_caindidate + 1][1].done():
-          process_caindidate += 1
+      if process_queue.empty() and msn + 1 < len(segments):
+        process_queue.put_nowait(msn + 1)
 
   asyncio.create_task(process())
   return '', playlist, segment, initalization
@@ -307,8 +310,8 @@ async def main():
 
   args = parser.parse_args()
 
-  audio_codec, audio_playlist, audio_segment, audio_init = await audio(args.input, Path('ffmpeg'), args.target_duration)
-  video_codec, video_playlist, video_segment, video_init = await video(args.input, Path('ffmpeg'), args.target_duration)
+  audio_codec, audio_playlist, audio_segment, audio_init = await audio(args.input, Path('ffmpeg'), args.target_duration, False)
+  video_codec, video_playlist, video_segment, video_init = await video(args.input, Path('ffmpeg'), args.target_duration, False)
   async def master_playlist(request: web.Request):
     m3u8 = ''
     m3u8 += f'#EXTM3U\n'
