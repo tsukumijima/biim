@@ -262,7 +262,6 @@ async def video(input: Path, ffmpeg: Path, target_duration: int, copy = False, s
           process_queue.put_nowait(msn + 1)
         continue
       processing[msn] = True
-      print(msn)
 
       ss = max(0, msn * target_duration)
       t =  target_duration
