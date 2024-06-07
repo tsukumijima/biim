@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<head>
+</head>
+<body>
+    <video id="video" controls></video>
+    <script type="module">
+        import Hls, { BufferController } from 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.11/hls.light.mjs';
+
+        class OreOreBufferController extends BufferController {
+            constructor(hls, fragmentTracker) {
+                super(hls, fragmentTracker);
+                this.onOreOreMediaAttachingHandler = this.onOreOreMediaAttaching.bind(this);
+                this.onOreOreMediaDetachingHandler = this.onOreOreMediaDetaching.bind(this);
+                this.onOreOreBufferFlushHandler = this.onOreOreBufferFlush.bind(this);
+                this.playing = false;
+
+                hls.on(Hls.Events.MEDIA_ATTACHING, this.onOreOreMediaAttachingHandler);
+                hls.on(Hls.Events.MEDIA_DETACHING, this.onOreOreMediaDetachingHandler);
+            }
+
+            onOreOreMediaAttaching(event, data) {
+                const { media } = data;
+                media.addEventListener('seeking', this.onOreOreBufferFlushHandler);
+            }
+
+            onOreOreMediaDetaching(event, data) {
+                const { media } = data;
+                media.removeEventListener('seeking', this.onOreOreBufferFlushHandler);
+            }
+
+
+            onOreOreBufferFlush() {
+                this.hls.trigger(Hls.Events.BUFFER_FLUSHING, {
+                    startOffset: 0,
+                    endOffset: Number.POSITIVE_INFINITY,
+                    type: null,
+                });
+            }
+        }
+
+        const video = document.getElementById('video');
+        const hls = new Hls({ bufferController: OreOreBufferController });
+        hls.loadSource('http://localhost:8080/playlist.m3u8');
+        hls.attachMedia(video);
+    </script>
+</body>
