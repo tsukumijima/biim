@@ -28,7 +28,6 @@
                 media.removeEventListener('seeking', this.onOreOreBufferFlushHandler);
             }
 
-
             onOreOreBufferFlush() {
                 this.hls.trigger(Hls.Events.BUFFER_FLUSHING, {
                     startOffset: 0,

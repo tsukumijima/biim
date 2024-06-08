@@ -68,6 +68,10 @@ async def main():
     if body is None:
       return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp2t")
 
+    for prev in range(seq - 5, -1, -1):
+      if not virtual_segments[prev].done(): break
+      virtual_segments[prev] = asyncio.Future()
+
     return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, body=body, content_type="video/mp2t")
 
   # setup aiohttp
