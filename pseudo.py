@@ -19,18 +19,26 @@ from biim.mpeg2ts.pes import PES
 import argparse
 from pathlib import Path
 
-async def keyframe_info(input: Path) -> list[tuple[int, float]]:
+async def keyframe_info(input: Path, targetduration: float = 6) -> list[tuple[int, float]]:
   options = ['-i', f'{input}', '-select_streams', 'v:0', '-show_packets', '-show_entries', 'packet=pts,dts,flags,pos', '-of', 'json']
   prober = await asyncio.subprocess.create_subprocess_exec('ffprobe', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
   raw_frames = [('K' in data['flags'], int(data['pos']), int(data['dts'])) for data in json.loads((await cast(asyncio.StreamReader, prober.stdout).read()).decode('utf-8'))['packets']]
   filtered_frames = [(pos, dts) for (key, pos, dts) in raw_frames if key] + ([(raw_frames[-1][1], raw_frames[-1][2])] if raw_frames[-1][0] else [])
-  return [(pos, (end - begin) / ts.HZ) for (pos, begin), (_, end) in zip(filtered_frames[0:], filtered_frames[1:])]
+  segments = [(pos, (end - begin) / ts.HZ) for (pos, begin), (_, end) in zip(filtered_frames[0:], filtered_frames[1:])]
+  merged = [segments[0]]
+  for segment in segments[1:]:
+    if merged[-1][1] >= targetduration:
+      merged.append((segment))
+    else:
+      merged[-1] = (merged[-1][0], merged[-1][1] + segment[1])
+  return merged
 
 async def main():
   loop = asyncio.get_running_loop()
   parser = argparse.ArgumentParser(description=('biim: HLS Pseudo VOD In-Memroy Origin'))
 
   parser.add_argument('-i', '--input', type=Path, required=True)
+  parser.add_argument('-t', '--targetduration', type=int, nargs='?', default=6)
   parser.add_argument('-p', '--port', type=int, nargs='?', default=8080)
 
   args = parser.parse_args()
@@ -38,7 +46,7 @@ async def main():
   input_file = open(args.input, 'rb')
 
   # setup pseudo playlist/segment
-  segments = await keyframe_info(input_path)
+  segments = await keyframe_info(input_path, args.targetduration)
   num_of_segments = len(segments)
   target_duration = math.ceil(max(duration for _, duration in segments))
   virutal_playlist: asyncio.Future[str] = asyncio.Future()
@@ -111,8 +119,8 @@ async def main():
     process_queue.task_done()
 
     options = ['python3', '-c', f'\'import sys;\nfile=open("{shlex.quote(str(input_path))}","rb");\nfile.seek({pos});\nwhile file:\n sys.stdout.buffer.write(file.read(188 * 10))\''] + \
-      ['|', 'ffmpeg', '-f', 'mpegts', '-i', '-', '-map', '0:v', '-map', '0:a:0'] + \
-      ['-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast'] + \
+      ['|', 'ffmpeg', '-f', 'mpegts', '-i', '-', '-map', '0:v:0', '-map', '0:a:0'] + \
+      ['-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast', "-pix_fmt", "yuv420p"] + \
       ['-c:a', 'aac', '-ac', '2', '-ar', '48000'] + \
       ['-output_ts_offset', f'{offset}', '-f', 'mpegts', '-']
     encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(options), stdin=input_file, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
