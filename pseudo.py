@@ -19,7 +19,7 @@ from biim.mpeg2ts.pes import PES
 import argparse
 from pathlib import Path
 
-async def keyframe_info(input: Path, targetduration: float = 6) -> list[tuple[int, float]]:
+async def keyframe_info(input: Path, targetduration: float = 3) -> list[tuple[int, float]]:
   options = ['-i', f'{input}', '-select_streams', 'v:0', '-show_packets', '-show_entries', 'packet=pts,dts,flags,pos', '-of', 'json']
   prober = await asyncio.subprocess.create_subprocess_exec('ffprobe', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
   raw_frames = [('K' in data['flags'], int(data['pos']), int(data['dts'])) for data in json.loads((await cast(asyncio.StreamReader, prober.stdout).read()).decode('utf-8'))['packets']]
@@ -38,7 +38,7 @@ async def main():
   parser = argparse.ArgumentParser(description=('biim: HLS Pseudo VOD In-Memroy Origin'))
 
   parser.add_argument('-i', '--input', type=Path, required=True)
-  parser.add_argument('-t', '--targetduration', type=int, nargs='?', default=6)
+  parser.add_argument('-t', '--targetduration', type=int, nargs='?', default=3)
   parser.add_argument('-p', '--port', type=int, nargs='?', default=8080)
 
   args = parser.parse_args()
@@ -49,13 +49,41 @@ async def main():
   segments = await keyframe_info(input_path, args.targetduration)
   num_of_segments = len(segments)
   target_duration = math.ceil(max(duration for _, duration in segments))
-  virutal_playlist: asyncio.Future[str] = asyncio.Future()
+  virtual_cache: str = 'identity'
   virtual_segments: list[asyncio.Future[bytes | bytearray | memoryview | None]] = []
   processing: list[int] = []
   process_queue: asyncio.Queue[int] = asyncio.Queue()
 
+  async def m3u8(cache: str, s: int):
+    virutal_playlist_header = ''
+    virutal_playlist_header += f'#EXTM3U\n'
+    virutal_playlist_header += f'#EXT-X-VERSION:6\n'
+    virutal_playlist_header += f'#EXT-X-TARGETDURATION:{target_duration}\n'
+    virutal_playlist_header += f'#EXT-X-PLAYLIST-TYPE:VOD\n'
+    virtual_playlist_body = ''
+    for seq, (_, duration) in enumerate(segments):
+      if seq != 0 and seq == s:
+        virtual_playlist_body += "#EXT-X-DISCONTINUITY\n"
+      virtual_playlist_body += f"#EXTINF:{duration:.06f}\n"
+      virtual_playlist_body += f"segment?seq={seq}&_={cache}\n"
+      virtual_playlist_body += "\n"
+    virtual_playlist_tail = '#EXT-X-ENDLIST\n'
+    return virutal_playlist_header + virtual_playlist_body + virtual_playlist_tail
+
   async def playlist(request):
-    result = await asyncio.shield(virutal_playlist)
+    nonlocal virtual_cache
+    version = request.query['_'] if '_' in request.query else 'identity'
+    t = float(request.query['t']) if 't' in request.query else 0
+    seq = 0
+    for segment in segments:
+      if t < segment[1]: break
+      t -= segment[1]
+      seq += 1
+
+    if not virtual_segments[seq].done() and not processing[seq]:
+      virtual_cache = version
+
+    result = await asyncio.shield(m3u8(virtual_cache, seq))
     return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, text=result, content_type="application/x-mpegURL")
   async def segment(request):
     seq = request.query['seq'] if 'seq' in request.query else None
@@ -74,13 +102,13 @@ async def main():
     body = await asyncio.shield(virtual_segments[seq])
 
     if body is None:
-      return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, status=400, content_type="video/mp2t")
+      return await playlist(request)
 
-    for prev in range(seq - 5, -1, -1):
+    for prev in range(seq - 10, -1, -1):
       if not virtual_segments[prev].done(): break
       virtual_segments[prev] = asyncio.Future()
 
-    return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, body=body, content_type="video/mp2t")
+    return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=3600'}, body=body, content_type="video/mp2t")
 
   # setup aiohttp
   app = web.Application()
@@ -92,20 +120,9 @@ async def main():
   await runner.setup()
   await loop.create_server(cast(web.Server, runner.server), '0.0.0.0', args.port)
 
-  virutal_playlist_header = ''
-  virutal_playlist_header += f'#EXTM3U\n'
-  virutal_playlist_header += f'#EXT-X-VERSION:6\n'
-  virutal_playlist_header += f'#EXT-X-TARGETDURATION:{target_duration}\n'
-  virutal_playlist_header += f'#EXT-X-PLAYLIST-TYPE:VOD\n'
-  virtual_playlist_body = '\n'.join([
-    f'#EXTINF:{duration:.06f}\nsegment?seq={seq}\n'
-    for seq, (_, duration) in enumerate(segments)
-  ])
-  virtual_playlist_tail = '#EXT-X-ENDLIST\n'
   virtual_segments = [asyncio.Future[bytes | bytearray | memoryview | None]() for _ in range(num_of_segments)]
   processing = [False for _ in range(num_of_segments)]
 
-  virutal_playlist.set_result(virutal_playlist_header + virtual_playlist_body + virtual_playlist_tail)
   await process_queue.put(0)
   while True:
     seq = await process_queue.get()
@@ -120,9 +137,9 @@ async def main():
 
     options = ['python3', '-c', f'\'import sys;\nfile=open("{shlex.quote(str(input_path))}","rb");\nfile.seek({pos});\nwhile file:\n sys.stdout.buffer.write(file.read(188 * 10))\''] + \
       ['|', 'ffmpeg', '-f', 'mpegts', '-i', '-', '-map', '0:v:0', '-map', '0:a:0'] + \
-      ['-c:v', 'libx264', '-tune', 'zerolatency', '-preset', 'ultrafast', "-pix_fmt", "yuv420p"] + \
+      ['-c:v', 'libx264', '-profile:v', 'baseline', '-tune', 'zerolatency', '-preset', 'ultrafast', "-pix_fmt", "yuv420p"] + \
       ['-c:a', 'aac', '-ac', '2', '-ar', '48000'] + \
-      ['-output_ts_offset', f'{offset}', '-f', 'mpegts', '-']
+      ['-output_ts_offset', f'{offset}', '-f', 'mpegts', '-', '-flags', '+cgop+global_header']
     encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(options), stdin=input_file, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
     reader = cast(asyncio.StreamReader, encoder.stdout)
 

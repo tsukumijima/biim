@@ -9,37 +9,43 @@
         class OreOreBufferController extends BufferController {
             constructor(hls, fragmentTracker) {
                 super(hls, fragmentTracker);
-                this.onOreOreMediaAttachingHandler = this.onOreOreMediaAttaching.bind(this);
-                this.onOreOreMediaDetachingHandler = this.onOreOreMediaDetaching.bind(this);
                 this.onOreOreBufferFlushHandler = this.onOreOreBufferFlush.bind(this);
-                this.playing = false;
-
-                hls.on(Hls.Events.MEDIA_ATTACHING, this.onOreOreMediaAttachingHandler);
-                hls.on(Hls.Events.MEDIA_DETACHING, this.onOreOreMediaDetachingHandler);
+                this.dontflush = false;
             }
 
-            onOreOreMediaAttaching(event, data) {
-                const { media } = data;
-                media.addEventListener('seeking', this.onOreOreBufferFlushHandler);
+            onBufferReset() {
+                if (this.dontflush) {
+                    this.dontflush = false;
+                    return;
+                }
+                super.onBufferReset();
             }
 
-            onOreOreMediaDetaching(event, data) {
-                const { media } = data;
-                media.removeEventListener('seeking', this.onOreOreBufferFlushHandler);
+            onMediaAttaching(event, data) {
+                super.onMediaAttaching(event, data);
+                this.media.addEventListener('seeking', this.onOreOreBufferFlushHandler);
             }
-
+            onMediaDetaching() {
+                this.media.removeEventListener('seeking', this.onOreOreBufferFlushHandler);
+                super.onMediaDetaching();
+            }
             onOreOreBufferFlush() {
                 this.hls.trigger(Hls.Events.BUFFER_FLUSHING, {
                     startOffset: 0,
                     endOffset: Number.POSITIVE_INFINITY,
                     type: null,
                 });
+                this.dontflush = true;
+                this.hls.trigger(Hls.Events.MANIFEST_LOADING, {
+                    url: `http://localhost:8080/playlist.m3u8?t=${this.media.currentTime}&_=${crypto.randomUUID()}`
+                });
             }
         }
 
         const video = document.getElementById('video');
-        const hls = new Hls({ bufferController: OreOreBufferController });
-        hls.loadSource('http://localhost:8080/playlist.m3u8');
+        const hls = new Hls({ bufferController: OreOreBufferController, debug: false});
+        const url = 'http://localhost:8080/playlist.m3u8?t=0';
+        hls.loadSource(url);
         hls.attachMedia(video);
     </script>
 </body>
