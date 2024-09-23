@@ -16,6 +16,7 @@ from biim.mpeg2ts.pmt import PMTSection
 from biim.mpeg2ts.scte import SpliceInfoSection
 from biim.mpeg2ts.pes import PES
 from biim.mpeg2ts.h264 import H264PES
+from biim.mpeg2ts.h265 import H265PES
 from biim.mpeg2ts.parser import SectionParser, PESParser
 
 from biim.variant.mpegts import MpegtsVariantHandler
@@ -59,6 +60,7 @@ async def main():
   PMT_Parser: SectionParser[PMTSection] = SectionParser(PMTSection)
   SCTE35_Parser: SectionParser[SpliceInfoSection] = SectionParser(SpliceInfoSection)
   H264_PES_Parser: PESParser[H264PES] = PESParser(H264PES)
+  H265_PES_parser: PESParser[H265PES] = PESParser(H265PES)
   AAC_PES_Parser: PESParser[PES] = PESParser(PES)
 
   LATEST_VIDEO_TIMESTAMP: int | None = None
@@ -67,6 +69,7 @@ async def main():
 
   PMT_PID: int | None = None
   H264_PID: int | None = None
+  H265_PID: int | None = None
   AAC_PID: int | None = None
   SCTE35_PID: int | None = None
   PCR_PID: int | None = None
@@ -121,6 +124,8 @@ async def main():
         for stream_type, elementary_PID, _ in PMT:
           if stream_type == 0x1b:
             H264_PID = elementary_PID
+          elif stream_type == 0x24:
+            H265_PID = elementary_PID
           elif stream_type == 0x86:
             SCTE35_PID = elementary_PID
 
@@ -130,6 +135,23 @@ async def main():
         handler.h264(PID, H264)
 
         if (timestamp := H264.dts() or H264.pts()) is None: continue
+        if LATEST_VIDEO_TIMESTAMP is not None and LATEST_VIDEO_MONOTONIC_TIME is not None:
+          TIMESTAMP_DIFF = ((timestamp - LATEST_VIDEO_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
+          TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
+          if args.input is not sys.stdin.buffer:
+            SLEEP_BEGIN = time.monotonic()
+            await asyncio.sleep(max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE)))
+            SLEEP_END = time.monotonic()
+            LATEST_VIDEO_SLEEP_DIFFERENCE = (SLEEP_END - SLEEP_BEGIN) - max(0, TIMESTAMP_DIFF - (TIME_DIFF + LATEST_VIDEO_SLEEP_DIFFERENCE))
+        LATEST_VIDEO_TIMESTAMP = timestamp
+        LATEST_VIDEO_MONOTONIC_TIME = time.monotonic()
+
+    elif PID == H265_PID:
+      H265_PES_parser.push(packet)
+      for H265 in H265_PES_parser:
+        handler.h265(PID, H265)
+
+        if (timestamp := H265.dts() or H265.pts()) is None: continue
         if LATEST_VIDEO_TIMESTAMP is not None and LATEST_VIDEO_MONOTONIC_TIME is not None:
           TIMESTAMP_DIFF = ((timestamp - LATEST_VIDEO_TIMESTAMP + ts.PCR_CYCLE) % ts.PCR_CYCLE) / ts.HZ
           TIME_DIFF = time.monotonic() - LATEST_VIDEO_MONOTONIC_TIME
