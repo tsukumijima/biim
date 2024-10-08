@@ -1,5 +1,6 @@
 # 以下は全て KonomiTV から検証のために移植
 
+import sys
 from pydantic import BaseModel, PositiveInt
 from typing import Literal
 
@@ -207,8 +208,7 @@ def buildFFmpegOptions(
 
     # ストリームのマッピング
     ## 音声切り替えのため、主音声・副音声両方をエンコード後の TS に含む
-    # options.append('-map 0:v:0 -map 0:a:0 -map 0:a:1 -map 0:d? -ignore_unknown')
-    options.append('-map 0:v:0 -map 0:a:0 -map 0:a:1? -map 0:d? -ignore_unknown')
+    options.append('-map 0:v:0 -map 0:a:0 -map 0:a:1 -map 0:d? -ignore_unknown')
 
     # フラグ
     ## 主に FFmpeg の起動を高速化するための設定
@@ -248,13 +248,11 @@ def buildFFmpegOptions(
         ## インターレース解除 (60i → 60p (フレームレート: 60fps))
         if QUALITY[quality].is_60fps is True:
             options.append(f'-vf yadif=mode=1:parity=-1:deint=1,scale={video_width}:{video_height}')
-            # options.append(f'-r 60000/1001 -g {int(gop_length_second * 60)}')
-            options.append(f'-r 60000/1001')
+            options.append(f'-r 60000/1001 -g {int(gop_length_second * 60)}')
         ## インターレース解除 (60i → 30p (フレームレート: 30fps))
         else:
             options.append(f'-vf yadif=mode=0:parity=-1:deint=1,scale={video_width}:{video_height}')
-            # options.append(f'-r 30000/1001 -g {int(gop_length_second * 30)}')
-            options.append(f'-r 30000/1001')
+            options.append(f'-r 30000/1001 -g {int(gop_length_second * 30)}')
     # プログレッシブ映像
     ## プログレッシブ映像の場合は 60fps 化する方法はないため、無視して元映像と同じフレームレートでエンコードする
     ## GOP は 30fps だと仮定して設定する
@@ -435,15 +433,54 @@ def buildHWEncCOptions(
     return result
 
 def getEncoderCommand(encoder_type: Literal['FFmpeg', 'QSVEncC', 'NVEncC', 'VCEEncC', 'rkmppenc'], quality: QUALITY_TYPES, output_ts_offset: int) -> list[str]:
+    # tsreadex のオプション
+    ## 放送波の前処理を行い、エンコードを安定させるツール
+    ## オプション内容は https://github.com/xtne6f/tsreadex を参照
+    tsreadex_options = [
+        'tsreadex',
+        # 取り除く TS パケットの10進数の PID
+        ## EIT の PID を指定
+        '-x', '18/38/39',
+        # 特定サービスのみを選択して出力するフィルタを有効にする
+        ## 有効にすると、特定のストリームのみ PID を固定して出力される
+        ## 視聴対象の録画番組が放送されたチャンネルのサービス ID があれば指定する
+        # '-n', f'{self.recorded_program.channel.service_id}' if self.recorded_program.channel is not None else '-1',
+        '-n', '-1',
+        # 主音声ストリームが常に存在する状態にする
+        ## ストリームが存在しない場合、無音の AAC ストリームが出力される
+        ## 音声がモノラルであればステレオにする
+        ## デュアルモノを2つのモノラル音声に分離し、右チャンネルを副音声として扱う
+        '-a', '13',
+        # 副音声ストリームが常に存在する状態にする
+        ## ストリームが存在しない場合、無音の AAC ストリームが出力される
+        ## 音声がモノラルであればステレオにする
+        '-b', '7',
+        # 字幕ストリームが常に存在する状態にする
+        ## ストリームが存在しない場合、PMT の項目が補われて出力される
+        ## 実際の字幕データが現れない場合に5秒ごとに非表示の適当なデータを挿入する
+        '-c', '5',
+        # 文字スーパーストリームが常に存在する状態にする
+        ## ストリームが存在しない場合、PMT の項目が補われて出力される
+        '-u', '1',
+        # 字幕と文字スーパーを aribb24.js が解釈できる ID3 timed-metadata に変換する
+        ## +4: FFmpeg のバグを打ち消すため、変換後のストリームに規格外の5バイトのデータを追加する
+        ## +8: FFmpeg のエラーを防ぐため、変換後のストリームの PTS が単調増加となるように調整する
+        ## +4 は FFmpeg 6.1 以降不要になった (付与していると字幕が表示されなくなる) ため、
+        ## FFmpeg 4.4 系に依存している Linux 版 HWEncC 利用時のみ付与する
+        '-d', '13' if encoder_type != 'FFmpeg' and sys.platform == 'linux' else '9',
+        # 標準入力からの入力を受け付ける
+        '-',
+    ]
+
     if encoder_type == 'FFmpeg':
-        return ['ffmpeg'] + buildFFmpegOptions(quality, output_ts_offset)
+        return tsreadex_options + ['|', 'ffmpeg'] + buildFFmpegOptions(quality, output_ts_offset)
     elif encoder_type == 'QSVEncC':
-        return ['qsvencc'] + buildHWEncCOptions(quality, encoder_type, output_ts_offset)
+        return tsreadex_options + ['|', 'qsvencc'] + buildHWEncCOptions(quality, encoder_type, output_ts_offset)
     elif encoder_type == 'NVEncC':
-        return ['nvencc'] + buildHWEncCOptions(quality, encoder_type, output_ts_offset)
+        return tsreadex_options + ['|', 'nvencc'] + buildHWEncCOptions(quality, encoder_type, output_ts_offset)
     elif encoder_type == 'VCEEncC':
-        return ['vceencc'] + buildHWEncCOptions(quality, encoder_type, output_ts_offset)
+        return tsreadex_options + ['|', 'vceencc'] + buildHWEncCOptions(quality, encoder_type, output_ts_offset)
     elif encoder_type == 'rkmppenc':
-        return ['rkmppenc'] + buildHWEncCOptions(quality, encoder_type, output_ts_offset)
+        return tsreadex_options + ['|', 'rkmppenc'] + buildHWEncCOptions(quality, encoder_type, output_ts_offset)
     else:
         raise ValueError(f'Invalid encoder type: {encoder_type}')

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from pseudo_quality import getEncoderCommand
 
-async def keyframe_info(input: Path, targetduration: float = 3) -> list[tuple[int, float]]:
+async def keyframe_info(input: Path, targetduration: float) -> list[tuple[int, float]]:
   options = ['-i', f'{input}', '-select_streams', 'v:0', '-show_packets', '-show_entries', 'packet=pts,dts,flags,pos', '-of', 'json']
   prober = await asyncio.subprocess.create_subprocess_exec('ffprobe', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
   raw_frames = [('K' in data['flags'], int(data['pos']), int(data['dts'])) for data in json.loads((await cast(asyncio.StreamReader, prober.stdout).read()).decode('utf-8'))['packets']]
@@ -40,7 +40,7 @@ async def main():
   parser = argparse.ArgumentParser(description=('biim: HLS Pseudo VOD In-Memroy Origin'))
 
   parser.add_argument('-i', '--input', type=Path, required=True)
-  parser.add_argument('-t', '--targetduration', type=int, nargs='?', default=3)
+  parser.add_argument('-t', '--targetduration', type=int, nargs='?', default=2.5)
   parser.add_argument('-p', '--port', type=int, nargs='?', default=8080)
   parser.add_argument('-e', '--encoder', type=str, nargs='?', default='FFmpeg')
   parser.add_argument('-q', '--quality', type=str, nargs='?', default='1080p')
