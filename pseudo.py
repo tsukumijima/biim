@@ -182,6 +182,7 @@ with open("{str(input_path)}","rb") as file:
 
     while process_queue.empty():
       if seq >= len(segments): break
+      if encoder.returncode is not None and encoder.returncode != 0: break
 
       isEOF = False
       while True:
