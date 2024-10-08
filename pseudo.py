@@ -46,13 +46,19 @@ async def main():
   input_file = open(args.input, 'rb')
 
   # setup pseudo playlist/segment
+  print('calculating keyframe info...')
   segments = await keyframe_info(input_path, args.targetduration)
+  print('calculating keyframe info... done')
+  print(segments)
   num_of_segments = len(segments)
   target_duration = math.ceil(max(duration for _, duration in segments))
   virtual_cache: str = 'identity'
   virtual_segments: list[asyncio.Future[bytes | bytearray | memoryview | None]] = []
   processing: list[int] = []
   process_queue: asyncio.Queue[int] = asyncio.Queue()
+
+  async def index(request):
+    return web.FileResponse('pseudo.html')
 
   async def m3u8(cache: str, s: int):
     virutal_playlist_header = ''
@@ -113,6 +119,7 @@ async def main():
   # setup aiohttp
   app = web.Application()
   app.add_routes([
+    web.get('/', index),
     web.get('/playlist.m3u8', playlist),
     web.get('/segment', segment),
   ])
@@ -135,12 +142,12 @@ async def main():
     offset = sum((duration for _, duration in segments[:seq]), 0)
     process_queue.task_done()
 
-    options = ['python3', '-c', f'\'import sys;\nfile=open("{shlex.quote(str(input_path))}","rb");\nfile.seek({pos});\nwhile file:\n sys.stdout.buffer.write(file.read(188 * 10))\''] + \
+    options = ['python3', '-c', shlex.quote(f'import sys;\nfile=open("{str(input_path)}","rb");\nfile.seek({pos});\nwhile file:\n sys.stdout.buffer.write(file.read(188 * 10))')] + \
       ['|', 'ffmpeg', '-f', 'mpegts', '-i', '-', '-map', '0:v:0', '-map', '0:a:0'] + \
       ['-c:v', 'libx264', '-profile:v', 'baseline', '-tune', 'zerolatency', '-preset', 'ultrafast', "-pix_fmt", "yuv420p"] + \
       ['-c:a', 'aac', '-ac', '2', '-ar', '48000'] + \
       ['-output_ts_offset', f'{offset}', '-f', 'mpegts', '-', '-flags', '+cgop+global_header']
-    encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(options), stdin=input_file, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(options), stdin=input_file, stdout=asyncio.subprocess.PIPE)
     reader = cast(asyncio.StreamReader, encoder.stdout)
 
     PAT_Parser: SectionParser[PATSection] = SectionParser(PATSection)
