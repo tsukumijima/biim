@@ -2,9 +2,11 @@
 <head>
 </head>
 <body style="margin: 0; overflow: hidden; background-color: #000;">
-    <video id="video" controls style="width: 100dvw; height: 100dvh;"></video>
+    <div id="video" controls style="width: 100dvw; height: 100dvh;"></div>
+    <script src="https://cdn.jsdelivr.net/gh/tsukumijima/hls.js/dist/hls.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/tsukumijima/DPlayer@v1.31.3/dist/DPlayer.min.js"></script>
     <script type="module">
-        import Hls, { BufferController } from 'https://cdn.jsdelivr.net/gh/tsukumijima/hls.js/dist/hls.mjs';
+        import { BufferController } from 'https://cdn.jsdelivr.net/gh/tsukumijima/hls.js/dist/hls.mjs';
 
         class OreOreBufferController extends BufferController {
             constructor(hls, fragmentTracker) {
@@ -42,10 +44,51 @@
             }
         }
 
-        const video = document.getElementById('video');
-        const hls = new Hls({ bufferController: OreOreBufferController, debug: false});
-        const url = '/playlist.m3u8?t=0';
-        hls.loadSource(url);
-        hls.attachMedia(video);
+        const player = new DPlayer({
+            container: document.querySelector('#video'),
+            theme: '#E64F97',  // テーマカラー
+            lang: 'ja-jp',  // 言語
+            live: false,  // ビデオモード
+            loop: true,  // デフォルトでループ再生
+            airplay: false,  // AirPlay 機能 (うまく動かないため無効化)
+            autoplay: true,  // 自動再生
+            hotkey: true,  // キーボードショートカット
+            screenshot: true,  // スクリーンショット機能
+            volume: 1.0,  // 音量の初期値
+            // 映像
+            video: {
+                defaultQuality: '主音声',
+                quality: [
+                    {
+                        name: '主音声',
+                        type: 'hls',
+                        url: '/playlist.m3u8?t=0',
+                    }
+                ],
+            },
+            // プラグイン
+            pluginOptions: {
+                // hls.js
+                hls: {
+                    enableWorker: true,
+                    debug: true,
+                    bufferController: OreOreBufferController,
+                },
+                // aribb24.js
+                aribb24: {
+                    // DRCS 文字を対応する Unicode 文字に置換
+                    drcsReplacement: true,
+                    // 高解像度の字幕 Canvas を取得できるように
+                    enableRawCanvas: true,
+                    // 縁取りに strokeText API を利用
+                    useStrokeText: true,
+                }
+            },
+            // 字幕
+            subtitle: {
+                type: 'aribb24',  // aribb24.js を有効化
+            }
+        });
+        player.video.crossOrigin = 'anonymous';
     </script>
 </body>
