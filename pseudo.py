@@ -134,6 +134,7 @@ async def main():
 
   virtual_segments = [asyncio.Future[bytes | bytearray | memoryview | None]() for _ in range(num_of_segments)]
   processing = [False for _ in range(num_of_segments)]
+  encoder: asyncio.subprocess.Process | None = None
 
   await process_queue.put(0)
   while True:
@@ -159,6 +160,8 @@ with open("{str(input_path)}","rb") as file:
     chunk = file.read(188 * 10)
 """
     options = ['python3', '-c', shlex.quote(python_code)] + ['|'] + encoder_command
+    if encoder is not None:
+      encoder.kill()
     encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(options), stdin=input_file, stdout=asyncio.subprocess.PIPE)
     reader = cast(asyncio.StreamReader, encoder.stdout)
 
