@@ -1,7 +1,11 @@
 <!DOCTYPE html>
+<html lang="ja">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>biim MPEG-TS Streaming Demo</title>
 </head>
-<body style="margin: 0; overflow: hidden; background-color: #000;">
+<body style="margin: 0; overflow: hidden; background: #000; font-family: sans-serif;">
     <div id="video" controls style="width: 100dvw; height: 100dvh;"></div>
     <script src="https://cdn.jsdelivr.net/gh/tsukumijima/hls.js/dist/hls.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/tsukumijima/DPlayer@v1.31.3/dist/DPlayer.min.js"></script>
@@ -27,13 +31,18 @@
                 super.onMediaAttaching(event, data);
                 this.media.addEventListener('seeking', this.onOreOreBufferFlushHandler);
             }
+
             onMediaDetaching() {
                 this.media.removeEventListener('seeking', this.onOreOreBufferFlushHandler);
                 super.onMediaDetaching();
             }
+
             onOreOreBufferFlush() {
                 // シーク位置がバッファの範囲内かチェック
                 let isInBufferedRange = false;
+                let isAtEnd = false;
+                const duration = this.media.duration;
+
                 for (let i = 0; i < this.media.buffered.length; i++) {
                     if (this.media.currentTime >= this.media.buffered.start(i) &&
                         this.media.currentTime <= this.media.buffered.end(i)) {
@@ -42,8 +51,13 @@
                     }
                 }
 
-                // バッファ範囲外の場合のみフラッシュとマニフェストの再読み込みを実行
-                if (!isInBufferedRange) {
+                // 再生が終了しているかチェック
+                if (this.media.currentTime >= duration - 0.5) {  // 0.5秒の余裕を持たせる
+                    isAtEnd = true;
+                }
+
+                // バッファ範囲外かつ再生終了でない場合のみフラッシュとマニフェストの再読み込みを実行
+                if (!isInBufferedRange && !isAtEnd) {
                     this.hls.trigger(Hls.Events.BUFFER_FLUSHING, {
                         startOffset: 0,
                         endOffset: Number.POSITIVE_INFINITY,
