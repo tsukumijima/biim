@@ -12,12 +12,12 @@
             constructor(hls, fragmentTracker) {
                 super(hls, fragmentTracker);
                 this.onOreOreBufferFlushHandler = this.onOreOreBufferFlush.bind(this);
-                this.dontflush = false;
+                this.dontFlush = false;
             }
 
             onBufferReset() {
-                if (this.dontflush) {
-                    this.dontflush = false;
+                if (this.dontFlush) {
+                    this.dontFlush = false;
                     return;
                 }
                 super.onBufferReset();
@@ -32,15 +32,29 @@
                 super.onMediaDetaching();
             }
             onOreOreBufferFlush() {
-                this.hls.trigger(Hls.Events.BUFFER_FLUSHING, {
-                    startOffset: 0,
-                    endOffset: Number.POSITIVE_INFINITY,
-                    type: null,
-                });
-                this.dontflush = true;
-                this.hls.trigger(Hls.Events.MANIFEST_LOADING, {
-                    url: `/playlist.m3u8?t=${this.media.currentTime}&_=${Math.random().toString(36).substring(2)}`
-                });
+                // シーク位置がバッファの範囲内かチェック
+                let isInBufferedRange = false;
+                for (let i = 0; i < this.media.buffered.length; i++) {
+                    if (this.media.currentTime >= this.media.buffered.start(i) &&
+                        this.media.currentTime <= this.media.buffered.end(i)) {
+                        isInBufferedRange = true;
+                        break;
+                    }
+                }
+
+                // バッファ範囲外の場合のみフラッシュとマニフェストの再読み込みを実行
+                if (!isInBufferedRange) {
+                    this.hls.trigger(Hls.Events.BUFFER_FLUSHING, {
+                        startOffset: 0,
+                        endOffset: Number.POSITIVE_INFINITY,
+                        type: null,
+                    });
+                    this.dontFlush = true;
+
+                    this.hls.trigger(Hls.Events.MANIFEST_LOADING, {
+                        url: `/playlist.m3u8?t=${this.media.currentTime}&_=${Math.random().toString(36).substring(2)}`
+                    });
+                }
             }
         }
 
