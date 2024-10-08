@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <head>
 </head>
-<body>
-    <video id="video" controls></video>
+<body style="margin: 0;">
+    <video id="video" controls style="width: 100%; height: 100%;"></video>
     <script type="module">
         import Hls, { BufferController } from 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.11/hls.light.mjs';
 
@@ -37,14 +37,14 @@
                 });
                 this.dontflush = true;
                 this.hls.trigger(Hls.Events.MANIFEST_LOADING, {
-                    url: `http://localhost:8080/playlist.m3u8?t=${this.media.currentTime}&_=${crypto.randomUUID()}`
+                    url: `/playlist.m3u8?t=${this.media.currentTime}&_=${Math.random().toString(36).substring(2)}`
                 });
             }
         }
 
         const video = document.getElementById('video');
         const hls = new Hls({ bufferController: OreOreBufferController, debug: false});
-        const url = 'http://localhost:8080/playlist.m3u8?t=0';
+        const url = '/playlist.m3u8?t=0';
         hls.loadSource(url);
         hls.attachMedia(video);
     </script>
