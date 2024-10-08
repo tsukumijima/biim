@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# Linux 環境において、事前に FFmpeg・FFprobe・QSVEncC・NVEncC・tsreadex がパスの通った場所にインストールされている前提で実装されている
+
 from typing import cast
 
 import asyncio
