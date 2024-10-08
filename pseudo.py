@@ -19,6 +19,8 @@ from biim.mpeg2ts.pes import PES
 import argparse
 from pathlib import Path
 
+from pseudo_quality import getEncoderCommand
+
 async def keyframe_info(input: Path, targetduration: float = 3) -> list[tuple[int, float]]:
   options = ['-i', f'{input}', '-select_streams', 'v:0', '-show_packets', '-show_entries', 'packet=pts,dts,flags,pos', '-of', 'json']
   prober = await asyncio.subprocess.create_subprocess_exec('ffprobe', *options, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
@@ -40,6 +42,8 @@ async def main():
   parser.add_argument('-i', '--input', type=Path, required=True)
   parser.add_argument('-t', '--targetduration', type=int, nargs='?', default=3)
   parser.add_argument('-p', '--port', type=int, nargs='?', default=8080)
+  parser.add_argument('-e', '--encoder', type=str, nargs='?', default='FFmpeg')
+  parser.add_argument('-q', '--quality', type=str, nargs='?', default='1080p')
 
   args = parser.parse_args()
   input_path: Path = args.input
@@ -142,11 +146,9 @@ async def main():
     offset = sum((duration for _, duration in segments[:seq]), 0)
     process_queue.task_done()
 
-    options = ['python3', '-c', shlex.quote(f'import sys;\nfile=open("{str(input_path)}","rb");\nfile.seek({pos});\nwhile file:\n sys.stdout.buffer.write(file.read(188 * 10))')] + \
-      ['|', 'ffmpeg', '-f', 'mpegts', '-i', '-', '-map', '0:v:0', '-map', '0:a:0'] + \
-      ['-c:v', 'libx264', '-profile:v', 'baseline', '-tune', 'zerolatency', '-preset', 'ultrafast', "-pix_fmt", "yuv420p"] + \
-      ['-c:a', 'aac', '-ac', '2', '-ar', '48000'] + \
-      ['-output_ts_offset', f'{offset}', '-f', 'mpegts', '-', '-flags', '+cgop+global_header']
+    encoder_command = getEncoderCommand(args.encoder, args.quality, int(offset))
+    print(encoder_command)
+    options = ['python3', '-c', shlex.quote(f'import sys;\nfile=open("{str(input_path)}","rb");\nfile.seek({pos});\nwhile file:\n sys.stdout.buffer.write(file.read(188 * 10))')] + ['|'] + encoder_command
     encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(options), stdin=input_file, stdout=asyncio.subprocess.PIPE)
     reader = cast(asyncio.StreamReader, encoder.stdout)
 
