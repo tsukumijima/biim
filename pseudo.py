@@ -55,7 +55,6 @@ async def main():
   print('calculating keyframe info...')
   segments = await keyframe_info(input_path, args.targetduration)
   print('calculating keyframe info... done')
-  print(segments)
   num_of_segments = len(segments)
   target_duration = math.ceil(max(duration for _, duration in segments))
   virtual_cache: str = 'identity'
@@ -150,7 +149,16 @@ async def main():
 
     encoder_command = getEncoderCommand(args.encoder, args.quality, int(offset))
     print(encoder_command)
-    options = ['python3', '-c', shlex.quote(f'import sys;\nfile=open("{str(input_path)}","rb");\nfile.seek({pos});\nwhile file:\n sys.stdout.buffer.write(file.read(188 * 10))')] + ['|'] + encoder_command
+    python_code = f"""
+import sys
+with open("{str(input_path)}","rb") as file:
+  file.seek({pos})
+  chunk = file.read(188 * 10)
+  while chunk:
+    sys.stdout.buffer.write(chunk)
+    chunk = file.read(188 * 10)
+"""
+    options = ['python3', '-c', shlex.quote(python_code)] + ['|'] + encoder_command
     encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(options), stdin=input_file, stdout=asyncio.subprocess.PIPE)
     reader = cast(asyncio.StreamReader, encoder.stdout)
 
