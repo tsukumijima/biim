@@ -19,6 +19,7 @@ from biim.mpeg2ts.pmt import PMTSection
 from biim.mpeg2ts.pes import PES
 
 import argparse
+import os
 from pathlib import Path
 
 from pseudo_quality import getEncoderCommand
@@ -49,7 +50,6 @@ async def main():
 
   args = parser.parse_args()
   input_path: Path = args.input
-  input_file = open(args.input, 'rb')
 
   # setup pseudo playlist/segment
   print('calculating keyframe info...')
@@ -154,15 +154,21 @@ async def main():
 import sys
 with open("{str(input_path)}","rb") as file:
   file.seek({pos})
-  chunk = file.read(188 * 10)
-  while chunk:
+  chunk = sys.stdin.buffer.read(188 * 10)
+  while chunk != b'':
     sys.stdout.buffer.write(chunk)
-    chunk = file.read(188 * 10)
+    chunk = sys.stdin.buffer.read(188 * 10)
 """
     options = ['python3', '-c', shlex.quote(python_code)] + ['|'] + encoder_command
-    if encoder is not None:
-      encoder.kill()
-    encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(options), stdin=input_file, stdout=asyncio.subprocess.PIPE)
+    if encoder:
+      if file:
+        file.seek(0, os.SEEK_END)
+        file.close()
+      await encoder.communicate()
+      await encoder.wait()
+    file = open(input_path, "rb")
+    file.seek(pos)
+    encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(options), stdin=file, stdout=asyncio.subprocess.PIPE)
     reader = cast(asyncio.StreamReader, encoder.stdout)
 
     PAT_Parser: SectionParser[PATSection] = SectionParser(PATSection)
