@@ -150,16 +150,6 @@ async def main():
 
     encoder_command = getEncoderCommand(args.encoder, args.quality, int(offset))
     print(encoder_command)
-    python_code = f"""
-import sys
-with open("{str(input_path)}","rb") as file:
-  file.seek({pos})
-  chunk = sys.stdin.buffer.read(188 * 10)
-  while chunk != b'':
-    sys.stdout.buffer.write(chunk)
-    chunk = sys.stdin.buffer.read(188 * 10)
-"""
-    options = ['python3', '-c', shlex.quote(python_code)] + ['|'] + encoder_command
     if encoder:
       if file:
         file.seek(0, os.SEEK_END)
@@ -168,7 +158,7 @@ with open("{str(input_path)}","rb") as file:
       await encoder.wait()
     file = open(input_path, "rb")
     file.seek(pos)
-    encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(options), stdin=file, stdout=asyncio.subprocess.PIPE)
+    encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(encoder_command), stdin=file, stdout=asyncio.subprocess.PIPE)
     reader = cast(asyncio.StreamReader, encoder.stdout)
 
     PAT_Parser: SectionParser[PATSection] = SectionParser(PATSection)
