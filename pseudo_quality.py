@@ -316,7 +316,7 @@ def buildHWEncCOptions(
     # フラグ
     ## 主に HWEncC の起動を高速化するための設定
     options.append('-m avioflags:direct -m fflags:nobuffer+flush_packets -m flush_packets:1 -m max_delay:250000')
-    options.append('-m max_interleave_delta:500K --output-thread 0 --lowlatency')
+    options.append('-m max_interleave_delta:500K --lowlatency')
     ## QSVEncC と rkmppenc では OpenCL を使用しないので、無効化することで初期化フェーズを高速化する
     if encoder_type == 'QSVEncC' or encoder_type == 'rkmppenc':
         options.append('--disable-opencl')
