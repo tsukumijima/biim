@@ -372,6 +372,12 @@ def buildHWEncCOptions(
     # gop_length_second = self.GOP_LENGTH_SECOND
     gop_length_second = 2.5
 
+    # GOP長を固定にする
+    if encoder_type == 'QSVEncC':
+        options.append('--strict-gop')
+    elif encoder_type == 'NVEncC':
+        options.append('--no-i-adapt')
+
     # インターレース映像
     # if self.recorded_video.video_scan_type == 'Interlaced':
     if True:
