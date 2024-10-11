@@ -43,7 +43,7 @@ async def main():
   parser = argparse.ArgumentParser(description=('biim: HLS Pseudo VOD In-Memroy Origin'))
 
   parser.add_argument('-i', '--input', type=Path, required=True)
-  parser.add_argument('-t', '--targetduration', type=int, nargs='?', default=2.5)
+  parser.add_argument('-t', '--targetduration', type=float, nargs='?', default=2.5)
   parser.add_argument('-p', '--port', type=int, nargs='?', default=8080)
   parser.add_argument('-e', '--encoder', type=str, nargs='?', default='FFmpeg')
   parser.add_argument('-q', '--quality', type=str, nargs='?', default='1080p')
@@ -73,8 +73,6 @@ async def main():
     virutal_playlist_header += f'#EXT-X-PLAYLIST-TYPE:VOD\n'
     virtual_playlist_body = ''
     for seq, (_, duration) in enumerate(segments):
-      if seq != 0 and seq == s:
-        virtual_playlist_body += "#EXT-X-DISCONTINUITY\n"
       virtual_playlist_body += f"#EXTINF:{duration:.06f}\n"
       virtual_playlist_body += f"segment?seq={seq}&_={cache}\n"
       virtual_playlist_body += "\n"
@@ -178,7 +176,6 @@ async def main():
 
     while process_queue.empty():
       if seq >= len(segments): break
-      if encoder.returncode is not None and encoder.returncode != 0: break
 
       isEOF = False
       while True:
@@ -203,7 +200,6 @@ async def main():
 
       PID = ts.pid(packet)
       if PID == 0x00:
-        candidate += packet
         PAT_Parser.push(packet)
         for PAT in PAT_Parser:
           if PAT.CRC32() != 0: continue
@@ -218,7 +214,6 @@ async def main():
             PAT_CC = (PAT_CC + 1) & 0x0F
 
       elif PID == PMT_PID:
-        candidate += packet
         PMT_Parser.push(packet)
         for PMT in PMT_Parser:
           if PMT.CRC32() != 0: continue
