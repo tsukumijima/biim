@@ -12,6 +12,12 @@
     <script type="module">
         import { BufferController } from 'https://cdn.jsdelivr.net/gh/tsukumijima/hls.js/dist/hls.mjs';
 
+        const sse = new EventSource('/buffer');
+        let server_buffering = null;
+        sse.addEventListener('message', (event) => {
+            server_buffering = event.data;
+        });
+
         class OreOreBufferController extends BufferController {
             constructor(hls, fragmentTracker) {
                 super(hls, fragmentTracker);
@@ -49,6 +55,12 @@
                         isInBufferedRange = true;
                         break;
                     }
+                }
+
+                // シーク位置がサーバのバッファリング範囲内かチェック
+                if (this.media.currentTime >= server_buffering.begin &&
+                    this.media.currentTime <= server_buffering.end) {
+                    isInBufferedRange = true;
                 }
 
                 // 再生が終了しているかチェック

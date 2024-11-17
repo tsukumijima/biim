@@ -1,1 +1,2 @@
 aiohttp>=3.9.1
+aiohttp-sse>=2.2.0
