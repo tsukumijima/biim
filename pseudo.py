@@ -6,6 +6,7 @@ from typing import cast
 
 import asyncio
 from aiohttp import web
+from aiohttp_sse import sse_response
 
 import json
 import math
@@ -61,6 +62,7 @@ async def main():
   virtual_segments: list[asyncio.Future[bytes | bytearray | memoryview | None]] = []
   processing: list[int] = []
   process_queue: asyncio.Queue[int] = asyncio.Queue()
+  buffer_status = (0, 0)
 
   async def index(request):
     return web.FileResponse('pseudo.html')
@@ -79,7 +81,7 @@ async def main():
     virtual_playlist_tail = '#EXT-X-ENDLIST\n'
     return virutal_playlist_header + virtual_playlist_body + virtual_playlist_tail
 
-  async def playlist(request):
+  async def playlist(request: web.Request) -> web.Response:
     nonlocal virtual_cache
     version = request.query['_'] if '_' in request.query else 'identity'
     t = float(request.query['t']) if 't' in request.query else 0
@@ -94,7 +96,8 @@ async def main():
 
     result = await asyncio.shield(m3u8(virtual_cache, seq))
     return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, text=result, content_type="application/x-mpegURL")
-  async def segment(request):
+
+  async def segment(request: web.Request) -> web.Response:
     seq = request.query['seq'] if 'seq' in request.query else None
 
     if seq is None:
@@ -119,12 +122,22 @@ async def main():
 
     return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=3600'}, body=body, content_type="video/mp2t")
 
+  async def buffer(request: web.Request) -> web.StreamResponse:
+    async with sse_response(request) as resp:
+      while resp.is_connected():
+        time_dict = {"begin": buffer_status[0], "end": buffer_status[1]}
+        data = json.dumps(time_dict, indent=2)
+        await resp.send(data)
+        await asyncio.sleep(1)
+    return resp
+
   # setup aiohttp
   app = web.Application()
   app.add_routes([
     web.get('/', index),
     web.get('/playlist.m3u8', playlist),
     web.get('/segment', segment),
+    web.get('/buffer', buffer)
   ])
   runner = web.AppRunner(app)
   await runner.setup()
@@ -144,6 +157,7 @@ async def main():
     virtual_segments = [asyncio.Future[bytes | bytearray | memoryview | None]() for _ in range(num_of_segments)]
     pos, _ = segments[seq]
     offset = sum((duration for _, duration in segments[:seq]), 0)
+    buffer_status = (offset, offset)
     process_queue.task_done()
 
     encoder_command = getEncoderCommand(args.encoder, args.quality, int(offset))
@@ -239,6 +253,7 @@ async def main():
           if timestamp >= offset + segments[seq][1]:
             virtual_segments[seq].set_result(candidate)
             processing[seq] = False
+            buffer_status = (buffer_status[0], buffer_status[1] + segments[seq][1])
 
             offset += segments[seq][1]
             seq += 1
