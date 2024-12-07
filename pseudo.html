@@ -15,7 +15,8 @@
         const sse = new EventSource('/buffer');
         let server_buffering = null;
         sse.addEventListener('message', (event) => {
-            server_buffering = event.data;
+            server_buffering = JSON.parse(event.data);
+            console.log('server_buffering:', server_buffering);
         });
 
         class OreOreBufferController extends BufferController {
@@ -69,7 +70,10 @@
                 }
 
                 // バッファ範囲外かつ再生終了でない場合のみフラッシュとマニフェストの再読み込みを実行
+                console.log('currentTime:', this.media.currentTime, 'isInBufferedRange:', isInBufferedRange, 'isAtEnd:', isAtEnd);
+                console.log('server_buffering.begin:', server_buffering.begin, 'server_buffering.end:', server_buffering.end);
                 if (!isInBufferedRange && !isAtEnd) {
+                    console.log('flush');
                     this.hls.trigger(Hls.Events.BUFFER_FLUSHING, {
                         startOffset: 0,
                         endOffset: Number.POSITIVE_INFINITY,
@@ -111,7 +115,7 @@
                 // hls.js
                 hls: {
                     enableWorker: true,
-                    debug: true,
+                    // debug: true,
                     preferManagedMediaSource: false,
                     bufferController: OreOreBufferController,
                 },
