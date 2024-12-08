@@ -21,6 +21,7 @@ from biim.mpeg2ts.pes import PES
 
 import argparse
 import os
+from datetime import datetime
 from pathlib import Path
 
 from pseudo_quality import getEncoderCommand
@@ -58,9 +59,9 @@ async def main():
   print('calculating keyframe info... done')
   num_of_segments = len(segments)
   target_duration = math.ceil(max(duration for _, duration in segments))
-  virtual_cache: str = 'identity'
+  virtual_cache: str = f'init-{datetime.now().strftime("%Y%m%d%H%M%S")}'
   virtual_segments: list[asyncio.Future[bytes | bytearray | memoryview | None]] = []
-  processing: list[int] = []
+  processing: list[bool] = []
   process_queue: asyncio.Queue[int] = asyncio.Queue()
   buffer_status = (0, 0)
 
@@ -83,7 +84,7 @@ async def main():
 
   async def playlist(request: web.Request) -> web.Response:
     nonlocal virtual_cache
-    version = request.query['_'] if '_' in request.query else 'identity'
+    version = request.query['_'] if '_' in request.query else f'init-{datetime.now().strftime("%Y%m%d%H%M%S")}'
     t = float(request.query['t']) if 't' in request.query else 0
     seq = 0
     for segment in segments:
