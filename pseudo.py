@@ -10,7 +10,7 @@ from aiohttp_sse import sse_response
 
 import json
 import math
-import shlex
+from itertools import accumulate
 
 from biim.mpeg2ts import ts
 from biim.mpeg2ts.packetize import packetize_section, packetize_pes
@@ -56,6 +56,7 @@ async def main():
   # setup pseudo playlist/segment
   print('calculating keyframe info...')
   segments = await keyframe_info(input_path, args.targetduration)
+  offsets = [0] + list(accumulate(duration for _, duration in segments))
   print('calculating keyframe info... done')
   num_of_segments = len(segments)
   target_duration = math.ceil(max(duration for _, duration in segments))
@@ -63,7 +64,8 @@ async def main():
   virtual_segments: list[asyncio.Future[bytes | bytearray | memoryview | None]] = []
   processing: list[bool] = []
   process_queue: asyncio.Queue[int] = asyncio.Queue()
-  buffer_status = (0, 0)
+  buffer_index: tuple[int, int] = (0, 0)
+  buffer_notify: asyncio.Future[None] = asyncio.Future()
 
   async def index(request):
     return web.FileResponse('pseudo.html')
@@ -99,6 +101,7 @@ async def main():
     return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=0'}, text=result, content_type="application/x-mpegURL")
 
   async def segment(request: web.Request) -> web.Response:
+    nonlocal buffer_index
     seq = request.query['seq'] if 'seq' in request.query else None
 
     if seq is None:
@@ -117,19 +120,25 @@ async def main():
     if body is None:
       return await playlist(request)
 
-    for prev in range(seq - 10, -1, -1):
-      if not virtual_segments[prev].done(): break
+    for prev in range(buffer_index[0], seq - 10):
       virtual_segments[prev] = asyncio.Future()
+      buffer_index = (prev + 1, buffer_index[1])
+      if not buffer_notify.done(): buffer_notify.set_result(None)
 
     return web.Response(headers={'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=3600'}, body=body, content_type="video/mp2t")
 
   async def buffer(request: web.Request) -> web.StreamResponse:
+    nonlocal buffer_notify
     async with sse_response(request) as resp:
       while resp.is_connected():
-        time_dict = {"begin": buffer_status[0], "end": buffer_status[1]}
+        time_dict = {"begin": offsets[buffer_index[0]], "end": offsets[buffer_index[1]]}
         data = json.dumps(time_dict, indent=2)
         await resp.send(data)
-        await asyncio.sleep(1)
+        buffer_notify = asyncio.Future()
+        try:
+          await asyncio.wait_for(asyncio.shield(buffer_notify), timeout=1.0)
+        except asyncio.TimeoutError:
+          pass
     return resp
 
   # setup aiohttp
@@ -158,7 +167,8 @@ async def main():
     virtual_segments = [asyncio.Future[bytes | bytearray | memoryview | None]() for _ in range(num_of_segments)]
     pos, _ = segments[seq]
     offset = sum((duration for _, duration in segments[:seq]), 0)
-    buffer_status = (offset, offset)
+    buffer_index = (seq, seq)
+    if not buffer_notify.done(): buffer_notify.set_result(None)
     process_queue.task_done()
 
     encoder_command = getEncoderCommand(args.encoder, args.quality, int(offset))
@@ -254,8 +264,8 @@ async def main():
           if timestamp >= offset + segments[seq][1]:
             virtual_segments[seq].set_result(candidate)
             processing[seq] = False
-            buffer_status = (buffer_status[0], buffer_status[1] + segments[seq][1])
-
+            buffer_index = (buffer_index[0], seq + 1)
+            if not buffer_notify.done(): buffer_notify.set_result(None)
             offset += segments[seq][1]
             seq += 1
             candidate = bytearray()
