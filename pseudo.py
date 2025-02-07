@@ -180,7 +180,7 @@ async def main():
       await encoder.communicate()
       await encoder.wait()
     file = open(input_path, "rb")
-    file.seek(pos)
+    file.seek(pos)  # fd がエンコーダープロセスと共通なことを利用して、ファイルポインタを移動させる
     encoder = await asyncio.subprocess.create_subprocess_shell(" ".join(encoder_command), stdin=file, stdout=asyncio.subprocess.PIPE)
     reader = cast(asyncio.StreamReader, encoder.stdout)
 

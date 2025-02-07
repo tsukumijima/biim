@@ -365,7 +365,7 @@ def buildHWEncCOptions(
         options.append('--profile main')
     else:
         options.append('--profile high')
-    options.append(f'--interlace tff --dar 16:9')
+    options.append('--dar 16:9')
 
     ## 最大 GOP 長 (秒)
     ## 30fps なら ×30 、 60fps なら ×60 された値が --gop-len で使われる
@@ -381,6 +381,8 @@ def buildHWEncCOptions(
     # インターレース映像
     # if self.recorded_video.video_scan_type == 'Interlaced':
     if True:
+        # インターレース映像として読み込む
+        options.append('--interlace tff')
         ## インターレース解除 (60i → 60p (フレームレート: 60fps))
         ## NVEncC の --vpp-deinterlace bob は品質が悪いので、代わりに --vpp-yadif を使う
         ## NVIDIA GPU は当然ながら Intel の内蔵 GPU よりも性能が高いので、GPU フィルタを使ってもパフォーマンスに問題はないと判断
